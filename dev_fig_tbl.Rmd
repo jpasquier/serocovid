@@ -1,0 +1,308 @@
+---
+title: "Essais - Graphiques et tables - Article SérocoViD"
+author: "Jérôme Pasquier"
+date: "2021-02-02"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: false
+    code_folding: hide
+---
+
+<!--
+Zoom function in rmarkdown html plot
+Source: https://stackoverflow.com/questions/56361986/
+-->
+
+```{css zoom-lib-src, echo = FALSE}
+script src = "https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
+```
+
+```{js zoom-jquery, echo = FALSE}
+ $(document).ready(function() {
+    $('body').prepend('<div class=\"zoomDiv\"><img src=\"\" class=\"zoomImg\"></div>');
+    // onClick function for all plots (img's)
+    $('img:not(.zoomImg)').click(function() {
+      $('.zoomImg').attr('src', $(this).attr('src')).css({width: '100%'});
+      $('.zoomDiv').css({opacity: '1', width: 'auto', border: '1px solid white', borderRadius: '5px', position: 'fixed', top: '50%', left: '50%', marginRight: '-50%', transform: 'translate(-50%, -50%)', boxShadow: '0px 0px 50px #888888', zIndex: '50', overflow: 'auto', maxHeight: '100%'});
+    });
+    // onClick function for zoomImg
+    $('img.zoomImg').click(function() {
+      $('.zoomDiv').css({opacity: '0', width: '0%'}); 
+    });
+  });
+```
+
+```{r, message=FALSE}
+
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(stringi)
+library(ggplot2)
+library(kableExtra)
+
+# ---------------------------------- Data ----------------------------------- #
+
+# Files
+files <- c("../results/prev_1st_wave_20201202.xlsx",
+           "../results/prev_2nd_wave_20201218.xlsx")
+
+# Proportion of positivee cases
+prev <- do.call(rbind, lapply(1:2, function(k) {
+  prev <- read_xlsx(files[k], sheet = "strates_4_8")
+  prev <- prev[prev$domain %in% c("all", "stratum"), ]
+  prev[prev$domain == "all", "value"] <- "0"
+  prev$domain <- NULL
+  prev$value <- as.numeric(prev$value)
+  names(prev)[names(prev) == "value"] <- "stratum"
+  age_classes <- c("all", "15-19", "20-39", "40-64", "65-74", ">=75")
+  prev$stratum <- factor(prev$stratum, c(0, 4:8), age_classes)
+  j <- which(names(prev) == "prev")
+  prev <- prev[, -(j + (0:2))]
+  names(prev)[grep("^(2\\.5%)", names(prev))] <- "ppos_lwr"
+  names(prev)[grep("^(97\\.5%)", names(prev))] <- "ppos_upr"
+  prev$survey <- k
+  return(prev)
+}))
+
+# Fictional third survey
+set.seed(666)
+prev3 <- prev[prev$survey == 2, ]
+r <- runif(nrow(prev3), 1.3, 1.6)
+a <- with(prev3, (ppos_upr - ppos) / sqrt(ppos * (1 - ppos)) * 
+                  sqrt(r * ppos * (1 - r * ppos)))
+prev3$ppos <- prev3$ppos * r
+prev3$ppos_lwr <- prev3$ppos - a
+prev3$ppos_upr <- prev3$ppos + a
+prev3$survey <- 3
+prev <- rbind(prev, prev3)
+rm(prev3, r, a)
+
+# Fictional proportion of positive asymptomatic people
+set.seed(666)
+r <- runif(nrow(prev), .2, .4)
+a <- with(prev, (ppos_upr - ppos) / sqrt(ppos * (1 - ppos)) * 
+                  sqrt(r * ppos * (1 - r * ppos)))
+prev$pasym <- prev$ppos * r
+prev$pasym_lwr <- prev$pasym - a
+prev$pasym_upr <- prev$pasym + a
+rm(a, r)
+
+# Long format
+varying <- list(c("ppos", "pasym"), c("ppos_lwr", "pasym_lwr"),
+                c("ppos_upr", "pasym_upr"))
+long <- prev %>%
+  as.data.frame() %>%
+  filter(Antibody == "IgG") %>%
+  select(-Antibody, -N, -n) %>%
+  mutate(survey = factor(survey, 1:3, paste0("SerocoViD", 1:3))) %>%
+  reshape(varying = varying, v.names = c("prop", "lwr", "upr"),
+          timevar = "type", idvar = c("stratum", "survey"),
+          times = c("positive", "asymtomatic"), direction = "long")
+long$type <- factor(long$type, c("positive", "asymtomatic"))
+rownames(long) <- NULL
+long2 <- prev %>%
+  as.data.frame() %>%
+  filter(Antibody == "IgG") %>%
+  select(-Antibody, -N, -n) %>%
+  mutate(survey = factor(survey, 1:3, paste0("SerocoViD", 1:3)),
+         ppos = ppos - pasym, ppos_lwr = ppos_lwr - pasym,
+         ppos_upr = ppos_upr - pasym) %>%
+  reshape(varying = varying, v.names = c("prop", "lwr", "upr"),
+          timevar = "type", idvar = c("stratum", "survey"),
+          times = c("positive", "asymtomatic"), direction = "long")
+long$type <- factor(long$type, c("positive", "asymtomatic"))
+rownames(long2) <- NULL
+rm(varying)
+
+```
+
+## Figures
+
+```{r}
+
+# --------------------------------- Figures --------------------------------- #
+
+# 2g8
+ggplot(subset(long, type == "positive"), aes(x = survey, y = prop)) +
+  geom_point() +
+  geom_line(group = 1) +
+  geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = .2) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~ stratum) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "", y = "", title = "Evolution of the seroprevalence",
+       subtitle = "By age classes", caption = "Fig ID: 2g8")
+
+# fs4
+ggplot(long, aes(x = survey, y = prop, color = type, group = type)) +
+  geom_point(position = position_dodge(width = 0.3)) +
+  geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = .2,
+                position = position_dodge(width = 0.3)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~ stratum) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "", y = "", subtitle = "Evolution by age classes",
+       title = "Seroprevalence and the proportion of asymptomatic people",
+       caption = "Fig ID: fs4")
+
+# t52
+ggplot(subset(long, type == "positive"), aes(x = survey, y = prop)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = .05) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~ stratum) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "", y = "", title = "Evolution of the seroprevalence",
+       subtitle = "By age classes", caption = "Fig ID: t52")
+
+# nz3
+ggplot(long, aes(x = survey, y = prop, fill = type, group = type)) +
+  geom_bar(stat = "identity", width = 0.5,
+           position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = .2,
+                position = position_dodge(width = 0.4), color = "grey40") +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~ stratum) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "", y = "", subtitle = "Evolution by age classes",
+       title = "Seroprevalence and the proportion of asymptomatic people",
+       caption = "Fig ID: nz3")
+
+# mog
+ggplot(subset(long, type == "positive"),
+         aes(x = stratum, y = prop, fill = survey)) +
+  geom_bar(stat = "identity", , position = position_dodge()) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "", y = "", title = "Evolution of the seroprevalence",
+       caption = "Fig ID: mog")
+
+# evg
+ggplot(long, aes(x = stratum, y = prop, fill = survey, alpha = type)) +
+  geom_bar(stat = "identity", , position = position_dodge()) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_alpha_manual(values=c(1, 0.6)) +
+  labs(x = "", y = "", caption = "Fig ID: evg",
+       title = "Seroprevalence and proportion of asymptomatic people")
+
+# gua
+ggplot(long2, aes(x = stratum, y = prop, group = survey, fill = survey,
+                  alpha = type)) +
+  geom_bar(stat = "identity", , position = position_dodge()) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_alpha_manual(values=c(1, 0.6)) +
+  labs(x = "", y = "", caption = "Fig ID: gua",
+       title = "Seroprevalence and proportion of asymptomatic people")
+
+# ubk
+cols <- c("#e63946", "#023e8a", "#0077b6", "#0096c7", "#00b4d8", "#48cae4")
+ggplot(subset(long, type == "positive"),
+       aes(x = survey, y = prop, fill = stratum)) +
+  geom_bar(stat = "identity", , position = position_dodge()) +
+  scale_fill_manual(values = cols) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "", y = "", title = "Evolution of the seroprevalence",
+       caption = "Fig ID: ubk")
+
+# asw
+cols <- c("#e63946", "#023e8a", "#0077b6", "#0096c7", "#00b4d8", "#48cae4")
+ggplot(long2, aes(x = survey, y = prop, group = stratum, fill = stratum,
+                  alpha = type)) +
+  geom_bar(stat = "identity", , position = position_dodge()) +
+  scale_fill_manual(values = cols) +
+  scale_alpha_manual(values=c(1, 0.6)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "", y = "", title = "Evolution of the seroprevalence",
+       caption = "Fig ID: asw")
+
+```
+
+## Tables
+
+```{r}
+
+long <- long %>%
+  mutate(
+    prop2 = sprintf(prop * 100, fmt = "%#.1f"),
+    lwr2 = sprintf(pmax(lwr, 0) * 100, fmt = "%#.1f"),
+    upr2 = sprintf(upr * 100, fmt = "%#.1f"),
+    prop2 = paste0(prop2, " (", lwr2, ";", upr2, ")")
+  ) %>%
+  select(-lwr2, -upr2)
+
+# ham
+long %>%
+  filter(type == "positive") %>%
+  select(stratum, survey, prop2) %>%
+  spread(survey, prop2) %>%
+  rename(Stratum = stratum) %>%
+  kbl(caption = "Seroprevalence (proportion of positive tests)") %>%
+  kable_classic(full_width = FALSE, html_font = "Cambria") %>%
+  footnote(general = "ham", general_title = "Tab ID:", footnote_as_chunk = TRUE)
+
+# nt7
+long %>%
+  filter(type == "asymtomatic") %>%
+  select(stratum, survey, prop2) %>%
+  spread(survey, prop2) %>%
+  rename(Stratum = stratum) %>%
+  kbl(caption = "Proportion of asymtomatics") %>%
+  kable_styling() %>%
+  footnote(general = "nt7", general_title = "Tab ID:", footnote_as_chunk = TRUE)
+
+# dvg
+long %>%
+  select(stratum, type, survey, prop2) %>%
+  spread(survey, prop2) %>%
+  arrange(stratum, type) %>%
+  select(-stratum) %>%
+  kbl(col.names = c("", colnames(.)[-1])) %>%
+  kable_classic(full_width = FALSE, html_font = "Cambria") %>%
+  pack_rows("All", 1, 2) %>%
+  pack_rows("15-19", 3, 4) %>%
+  pack_rows("20-39", 5, 6) %>%
+  pack_rows("40-64", 7, 8) %>%
+  pack_rows("65-74", 9, 10) %>%
+  pack_rows(">=75", 11, 12) %>%
+  footnote(general = "dvg", general_title = "Tab ID:", footnote_as_chunk = TRUE)
+
+# o7w
+long %>%
+  select(type, stratum, survey, prop2) %>%
+  spread(survey, prop2) %>%
+  arrange(type, stratum) %>%
+  select(-type) %>%
+  kbl(col.names = c("", colnames(.)[-1])) %>%
+  kable_classic(full_width = FALSE, html_font = "Cambria") %>%
+  pack_rows("Postive", 1, nlevels(long$stratum)) %>%
+  pack_rows("Asymptomatic", nlevels(long$stratum) + 1,
+            2 * nlevels(long$stratum)) %>%
+  footnote(general = "o7w", general_title = "Tab ID:", footnote_as_chunk = TRUE)
+
+# cyv
+long %>%
+  mutate(key = paste0(stri_sub(type, 1, 1), stri_sub(survey, -1, -1))) %>%
+  select(stratum, key, prop2) %>%
+  spread(key, prop2) %>%
+  select(stratum, p1, a1, p2, a2, p3, a3) %>%
+  kbl(col.names = c("Stratum", rep(c("Postive", "Asymtomatic"), 3))) %>%
+  kable_classic() %>%
+  add_header_above(c(" " = 1, "SerocoViD1" = 2, "SerocoViD2" = 2,
+                     "SerocoViD3" = 2)) %>%
+  footnote(general = "cyv", general_title = "Tab ID:", footnote_as_chunk = TRUE)
+
+# u1j
+long %>%
+  mutate(key = paste0(stri_sub(type, 1, 1), stri_sub(survey, -1, -1))) %>%
+  select(stratum, key, prop2) %>%
+  spread(key, prop2) %>%
+  select(stratum, p1, p2, p3, a1, a2, a3) %>%
+  kbl(col.names = c("Stratum", rep(paste("Survey", 1:3), 2))) %>%
+  kable_classic() %>%
+  add_header_above(c(" " = 1, "Positive" = 3, "Asymtomatic" = 3)) %>%
+  footnote(general = "u1j", general_title = "Tab ID:", footnote_as_chunk = TRUE)
+
+```
+
