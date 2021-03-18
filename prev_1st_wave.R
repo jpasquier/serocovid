@@ -35,6 +35,11 @@ if (FALSE) {
   subset(data, !is.na(DDN) & !is.na(Date.of.birth) & DDN != Date.of.birth)
 }
 
+# Gender
+data$uc_info_ec_genre <- apply(data[paste0("uc_info_ec_genre", c("", "_c"))],
+                               1, sum, na.rm = TRUE)
+data[data$uc_info_ec_genre %in% 0, "uc_info_ec_genre"] <- NA
+
 # Serology
 data$serol_igg <-
   apply(data[c("uc_labo_covigl", "uc_labo_covigl_2")], 1, function(x) {
@@ -56,6 +61,7 @@ data$serol_iga <-
       r <- NA
     }
   })
+data$serol_both <- pmin(data$serol_igg + data$serol_iga, 1)
 if (FALSE) with(data, table(serol_igg, serol_iga, useNA = "ifany"))
 
 # Age and gender
@@ -191,6 +197,7 @@ Mean <- function(data = data, variable = "serol", stratum = "stratum",
 # Sensitivity and specificity
 igg <- c(npos = 343, tp = 338, nneg = 256, fp = 2)
 iga <- c(npos = 343, tp = 299, nneg = 256, fp = 4)
+both <- c(npos = 343, tp = 339, nneg = 256, fp = 4)
 
 # Stratum sizes
 aggregate(hid ~ stratum, data, length)
@@ -207,22 +214,26 @@ prev <- lapply(0:2, function(j) {
     data <- data[!(data$stratum %in% 1:3), ]
     pop <- pop[!(pop$stratum %in% 1:3), ]
   }
-  do.call(rbind, lapply(1:2, function(k) {
+  do.call(rbind, lapply(1:3, function(k) {
     if (k == 1) {
       ab <- "IgG"
       vr <- "serol_igg"
       ig <- igg
-    } else {
+    } else if (k == 2) {
       ab <- "IgA"
       vr <- "serol_iga"
       ig <- iga
+    } else {
+      ab <- "IgG_or_IgA"
+      vr <- "serol_both"
+      ig <- both
     }
     se <- ig[["tp"]] / ig[["npos"]]
     sp <- 1 - ig[["fp"]] / ig[["nneg"]]
     v_se <- se * (1 - se) / ig[["npos"]]
     v_sp <- sp * (1 - sp) / ig[["nneg"]]
     prev <- Mean(data = data, variable = vr,
-                 domain = c("all", "stratum"))
+                 domain = c("all", "stratum", "uc_info_ec_genre"))
     prev$prev <- (prev$y + sp - 1) / (se + sp - 1)
     prev_sim <- do.call(rbind, lapply(1:nrow(prev), function(i) {
       y_sim <- rnorm(nsim, prev[i, "y"], sqrt(prev[i, "v"]))
@@ -254,11 +265,22 @@ prev <- lapply(0:2, function(j) {
 })
 names(prev) <- c("strates_1_8", "strates_3_8", "strates_4_8")
 
+# Sensitivity and specificity
+se_sp <- list(IgG = igg, IgA = iga, Both = both)
+se_sp <- lapply(se_sp, function(ig) {
+  se <- ig[["tp"]] / ig[["npos"]]
+  sp <- 1 - ig[["fp"]] / ig[["nneg"]]
+  c(ig, sensitivity = se, specificity = sp)
+})
+se_sp <- as.data.frame(do.call(rbind, se_sp))
+prev <- append(prev, list(se_sp = se_sp))
+
+
 # Export results
-sink("results/prev_1st_wave_sessionInfo_20201124.txt")
+sink("results/prev_1st_wave_sessionInfo_20201202.txt")
 print(sessionInfo(), locale = FALSE)
 sink()
-write_xlsx(prev, "results/prev_1st_wave_20201124.xlsx")
+write_xlsx(prev, "results/prev_1st_wave_20201202.xlsx")
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
