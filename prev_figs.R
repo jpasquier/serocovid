@@ -1,37 +1,32 @@
 library(readxl)
 library(ggplot2)
 setwd("~/Projects/SerocoViD")
-prev <- lapply(1:2, function(k) {
-  file_name <- paste0("results/prev_", c("1st", "2nd")[k],
-                      "_wave_20201124.xlsx")
-  tbl <- read_xlsx(file_name, sheet = "strates_4_8")
-  tbl <- subset(tbl, Antibody == "IgG")
-  tbl$value <- as.numeric(tbl$value)
-  j <- which(names(tbl) == "ppos")
-  tbl <- tbl[, -(j + (0:2))]
-  names(tbl)[grep("^(2\\.5%)", names(tbl))] <- "lwr"
-  names(tbl)[grep("^(97\\.5%)", names(tbl))] <- "upr"
-  attr(tbl, "wave") <- c("First", "Second")[k]
-  tbl
-})
-strata <- c("0-4", "5-9", "10-14", "15-19", "20-39", "40-64", "65-74", ">=75")
-figs <- lapply(prev, function(tbl) {
-  tbl <- subset(tbl, domain == "stratum")
-  tbl$age_class <- droplevels(factor(strata[tbl$value], strata))
-  ggplot(tbl, aes(x = age_class, y = prev)) +
+file_name <- paste0("results/prev_2nd_wave_20201218.xlsx")
+prev <- read_xlsx(file_name, sheet = "strates_4_8")
+prev <- subset(prev, Antibody == "IgG" & grepl("weeknbr", domain))
+prev$value <- as.numeric(prev$value)
+j <- which(names(prev) == "prev")
+prev <- prev[, -(j + (0:2))]
+names(prev)[grep("^(2\\.5%)", names(prev))] <- "lwr"
+names(prev)[grep("^(97\\.5%)", names(prev))] <- "upr"
+figs <- lapply(1:2, function(k) {
+  if (k == 1) {
+    d <- "weeknbr"
+    sttl <- "Strata 4 to 8 - Method 'domain'"
+  } else {
+    d <- "weeknbr (method 2)"
+    sttl <- "Strata 4 to 8 - Method 2"
+  }
+  fig <- ggplot(subset(prev, domain == d),
+                aes(x = as.factor(value), y = ppos)) +
     geom_point() +
     geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = .2) +
-    scale_y_continuous(labels = scales::percent) +
-    labs(x = "", y = "", title = "Seroprevalence by age group",
-         subtitle = paste(attr(tbl, "wave"), "wave"))
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+    labs(x = "", y = "", title = "Proportion of positive tests by week",
+         subtitle = sttl)
+  fig
 })
-figs[[3]] <- ggplot(subset(prev[[2]], domain == "weeknbr"),
-                    aes(x = value, y = prev)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = .2) +
-  scale_y_continuous(labels = scales::percent) +
-  labs(x = "", y = "", title = "Seroprevalence by week",
-       subtitle = paste(attr(prev[[2]], "wave"), "wave"))
-pdf("results/prev_figs_20201125.pdf")
-for(fig in figs) print(fig)
+pdf("results/prev_figs_20201218.pdf")
+for (fig in figs) print(fig)
+rm(fig)
 dev.off()
