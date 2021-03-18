@@ -1,5 +1,6 @@
 library(REDCapR)
 library(readxl)
+library(writexl)
 library(ggplot2)
 library(ggforce)
 library(wesanderson)
@@ -266,9 +267,6 @@ dta3$stratum <- dta3$stratum + 3
 if (any(is.na(dta3$stratum))) stop("missing stratum")
 rm(dta)
 
-# Postive but not vaccinated
-dta3$serol_any_no_vac <- dta3$serol_any * (dta3$bl_vac_yn == 2)
-
 # ----------------------------- Population size ----------------------------- #
 
 # Population size - survey 1 & 2
@@ -292,6 +290,16 @@ pop3 <- read.table(header = TRUE, text = "
         6  270755
         7   67462
         8   63605
+")
+
+# Vaccinated persons - Survey 3
+vac3 <-  read.table(header = TRUE, text = "
+  stratum       N
+        4       0
+        5       0
+        6       0
+        7    7665
+        8   23580
 ")
 
 # ------------------------------- Estimation -------------------------------- #
@@ -353,7 +361,7 @@ Mean <- function(data = data, variable = "serol", stratum = "stratum",
 
 # Estimation by survey
 # Survey 0 is survey 1 with all strata
-# Survey 4 is survey 3 with serol_any_no_vac
+# Survey 4 is survey 3 without vaccinated people
 dta1$all <- 0
 dta2$all <- 0
 dta3$all <- 0
@@ -362,73 +370,72 @@ long <- do.call(rbind, lapply(0:4, function(k) {
       dta <- dta1
     } else if (k == 2) {
       dta <- dta2
-    } else {
+    } else if (k == 3) {
       dta <- dta3
+    } else {
+      dta <- dta3[dta3$bl_vac_yn %in% 2 | dta3$stratum <= 6, ]
     }
     if (k >= 1) {
       dta <- subset(dta, stratum >= 4)
     }
     if (k <= 2) {
       pop <- pop1
-    } else {
+    } else if (k == 3) {
       pop <- pop3
-    }
-    if (k == 4) {
-      v <- "serol_any_no_vac"
     } else {
-      v <- "serol_any"
+      pop <- merge(pop3, vac3, by = "stratum", suffixes = c(".all", ".vac"))
+      pop$N <- pop$N.all - pop$N.vac
     }
-    p <- Mean(data = dta, variable = v, stratum = "stratum",
+    p <- Mean(data = dta, variable = "serol_any", stratum = "stratum",
               domain = c("all", "stratum"), pop = pop)
      cbind(visit = k, p)
 }))
 long <- long[!(long$visit == 0 & long$value %in% c(0, 4:8)), ]
 long[long$visit == 0, "visit"] <- 1
-long$visit <- factor(long$visit)
+names(long)[names(long) == "y"] <- "ppos"
+long$visit <- factor(long$visit, 1:4, c(1:3, "3 sans vaccinés 65+"))
 long$domain <- factor(long$domain, c("all", "stratum"),
                       c("Tous (15+)", "Groupes d'âge (années)"))
 long$value <- factor(long$value, 0:8,
                      c("Tous", "6m-4", "5-9", "10-14", "15-19", "20-39",
                        "40-64", "65-74", ">=75"))
+long <- long[order(long$visit, long$value), ]
+write_xlsx(long, "results/prev_serocovid_20210217.xlsx")
 
 # Figure
-fig <- ggplot(subset(long, visit %in% c(1, 3)),
-              aes(x = value, y = y, color = visit)) +
-  geom_point(position = position_dodge(width = 0.3)) +
-  geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = 0,
-                position = position_dodge(width = 0.3)) +
-  scale_y_continuous(labels = scales::percent) +
-  #theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  scale_color_manual(values =
-    wes_palette(n = 2, name = "IsleofDogs1")) +
-  labs(x = "", y = "Prévalence", color = "Enquête") +
-  facet_row(vars(domain), scales = "free_x", space = "free") +
-  theme_bw()
-fig
-jpeg("results/prev_serocovid_20210216.jpg", height = 3600, width = 7200, res = 1024)
-print(fig)
-dev.off()
-
-# Figure - serol_any_no_vac
-tmp <- subset(long, visit %in% c(1, 4))
-tmp[tmp$visit == 4, "visit"] <- 3
-fig_no_vac <- ggplot(tmp, aes(x = value, y = y, color = visit)) +
-  geom_point(position = position_dodge(width = 0.3)) +
-  geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = 0,
-                position = position_dodge(width = 0.3)) +
-  scale_y_continuous(labels = scales::percent) +
-  #theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  scale_color_manual(values =
-    wes_palette(n = 2, name = "IsleofDogs1")) +
-  labs(x = "", y = "Prévalence (positifs et non vaccinés)", color = "Enquête") +
-  facet_row(vars(domain), scales = "free_x", space = "free") +
-  theme_bw()
-jpeg("results/prev_serocovid_no_vac_20210216.jpg", height = 3600, width = 7200,
+Z <- list(1:3, c(1:2, "3 sans vaccinés 65+"), c(3, "3 sans vaccinés 65+"))
+fig <- lapply(Z, function(z) {
+  if (length(z) == 2) {
+    cols <- wes_palette(n = 2, name = "IsleofDogs1")
+  } else {
+    cols <- wes_palette(n = 3, name = "IsleofDogs1")[c(1, 3, 2)]
+  }
+  p <- ggplot(subset(long, visit %in% z),
+              aes(x = value, y = ppos, color = visit)) +
+    geom_point(position = position_dodge(width = 0.3)) +
+    geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = 0,
+                  position = position_dodge(width = 0.3)) +
+    scale_y_continuous(labels = scales::percent) +
+    #theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_color_manual(values = cols) +
+    labs(x = "", y = "Prévalence", color = "Enquête") +
+    facet_row(vars(domain), scales = "free_x", space = "free") +
+    theme_bw()
+  return(p)
+})
+jpeg("results/prev_serocovid_fig1_20210217.jpg", height = 3600, width = 7200,
      res = 1024)
-print(fig_no_vac)
+print(fig[[1]])
 dev.off()
-rm(tmp)
+jpeg("results/prev_serocovid_fig2_20210217.jpg", height = 3600, width = 7200,
+     res = 1024)
+print(fig[[2]])
+dev.off()
+jpeg("results/prev_serocovid_fig3_20210217.jpg", height = 3600, width = 7200,
+     res = 1024)
+print(fig[[3]])
+dev.off()
 
 #
 rm(serocovid_data)
-save.image("results/prev_serocovid_20210216.dta", compress = "xz")
+save.image("results/prev_serocovid_20210217.dta", compress = "xz")
