@@ -5,23 +5,13 @@ library(writexl)
 setwd("~/Projects/SerocoViD")
 
 # Data
-data_file <- "data-raw/Intermed_results_Q2017_20201123_date_prélèvmt.xlsx"
-data <- read_xlsx(data_file, sheet = "màj_23.11", range = "A1:I1217")
-data <- as.data.frame(data)
-if (FALSE) {
-  data_file_old <-
-    "data-raw/Intermed_results_Q2017_20201120_date_prélèvmt.xlsx"
-  data_old <- read_xlsx(data_file, sheet = "màj_20.11", range = "A1:I1134")
-  data_old <- as.data.frame(data_old)
-  tmp <- merge(data, data_old[, c("hid", "redcap_event_name",
-                                  "uc_labo_coviggl_v2", "uc_labo_covigal_v2")],
-               by = c("hid", "redcap_event_name") , all.x = TRUE, sort = FALSE,
-               suffixes = c("", ".old"))
-  with(tmp, table(uc_labo_coviggl_v2, uc_labo_coviggl_v2.old, 
-                  useNA = "ifany"))
-  with(tmp, table(uc_labo_covigal_v2, uc_labo_covigal_v2.old,
-                  useNA = "ifany"))
-}
+data_file <- "data-raw/Intermed_results_Q2017_20201210_date_prélèvmt.xlsx"
+data <- as.data.frame(read_xlsx(data_file, sheet = "màj_10.12.2020"))
+
+# Duplicated IDs
+if (any(duplicated(data$hid))) stop("duplicated hid")
+
+# Serology
 for (x in c("uc_labo_coviggl_v2", "uc_labo_covigal_v2")) {
   i <- !is.na(data[[x]]) & grepl("(Négatif|Ind(e|é)terminé)", data[[x]])
   data[i, x] <- 0
@@ -34,7 +24,7 @@ for (x in c("uc_labo_coviggl_v2", "uc_labo_covigal_v2")) {
   }
 }
 data$serol_both <- pmin(data$uc_labo_coviggl_v2 + data$uc_labo_covigal_v2, 1)
-
+rm(i, x)
 
 # Select observations
 if (FALSE) {
@@ -50,16 +40,6 @@ if (all(is.na(data$uc_labo_coviggl_v2) == is.na(data$uc_labo_covigal_v2))) {
   stop("missing serology")
 }
 
-# Duplicated IDs
-if (any(duplicated(data$hid))) {
-  dup_id <- function(.data, .id, .cols = NULL) {
-    if (is.null(.cols)) .cols <- names(.data)
-    data[data[[.id]] %in% .data[duplicated(.data[[.id]]), .id], .cols]
-  }
-  dup_id(data, "hid")
-  stop("duplicated hid")
-}
-
 # Date of birth
 i <- grepl("^10[0-9]{2}-[0-9]{2}-[09]{2}$", data$DDN)
 delta <- as.numeric(as.Date("1970-01-01") - as.Date("1899-12-30"))
@@ -67,10 +47,6 @@ data$DDN[i] <- as.character(as.numeric(as.Date(sub("^10", "19", data$DDN[i])))
                               + delta)
 data$DDN <- as.Date(as.numeric(data$DDN), origin = "1899-12-30")
 rm(i, delta)
-
-# week number grouped
-if (!all(data$weeknbr %in% 43:47)) stop("weeknbr")
-data$weeknbr_grp <- ifelse(data$weeknbr %in% 43:45, "43-44-45", "46-47")
 
 # Contrôle de l'âge
 # Problème avec hid = 745932
@@ -186,6 +162,17 @@ both <- c(npos = 343, tp = 339, nneg = 256, fp = 4)
 # Stratum sizes
 aggregate(hid ~ stratum, data, length)
 
+# Grouped weeks
+if (!all(data$weeknbr %in% 43:49)) stop("Check weeknkr")
+for (k in 0:5) {
+  gpa <- 43:(43 + k)
+  gpb <- (43:49)[!(43:49 %in% gpa)]
+  Gpa <- paste(gpa, collapse = "-")
+  Gpb <- paste(gpb, collapse = "-")
+  data[[paste0("weekgp", k)]] <- ifelse(data$weeknbr %in% gpa, Gpa, Gpb)
+}
+rm(k, gpa, gpb, Gpa, Gpb)
+
 # Prevalence
 set.seed(666)
 nsim <- 10^6
@@ -218,8 +205,8 @@ prev <- lapply(1:2, function(j) {
     sp <- 1 - ig[["fp"]] / ig[["nneg"]]
     v_se <- se * (1 - se) / ig[["npos"]]
     v_sp <- sp * (1 - sp) / ig[["nneg"]]
-    prev <- Mean(data = data, variable = vr,
-                 domain = c("weeknbr_grp"))
+    dom <- c("all", "stratum", "weeknbr", paste0("weekgp", 0:5))
+    prev <- Mean(data = data, variable = vr, domain = dom)
     prev$prev <- (prev$y + sp - 1) / (se + sp - 1)
     prev_sim <- do.call(rbind, lapply(1:nrow(prev), function(i) {
       y_sim <- rnorm(nsim, prev[i, "y"], sqrt(prev[i, "v"]))
@@ -252,10 +239,10 @@ prev <- lapply(1:2, function(j) {
 names(prev) <- c("strates_3_8", "strates_4_8")
 
 # Export results
-sink("results/prev_2nd_wave_sessionInfo_20201202.txt")
+sink("results/prev_2nd_wave_sessionInfo_20201210.txt")
 print(sessionInfo(), locale = FALSE)
 sink()
-write_xlsx(prev, "results/prev_2nd_wave_20201202.xlsx")
+write_xlsx(c(prev, list(data = data)), "results/prev_2nd_wave_20201210.xlsx")
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
