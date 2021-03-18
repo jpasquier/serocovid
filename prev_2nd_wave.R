@@ -5,13 +5,25 @@ library(writexl)
 setwd("~/Projects/SerocoViD")
 
 # Data
-data_file <- "data-raw/Intermed_results_Q2017_20201210_date_prélèvmt.xlsx"
-data <- as.data.frame(read_xlsx(data_file, sheet = "màj_10.12.2020"))
+data_file <- "data-raw/Intermed_results_Q2017_20201810_date_prélèvmt.xlsx"
+data <- as.data.frame(read_xlsx(data_file, sheet = "màj_18.12.2020",
+                                guess_max = 10^4))
+if (FALSE) {
+  with(data, table(!is.na(uc_ser_date_hour_v2), !is.na(uc_labo_coviggl_v2)))
+  with(data, table(!is.na(uc_ser_date_hour_v2), !is.na(uc_labo_covigal_v2)))
+  subset(data, is.na(uc_ser_date_hour_v2) & !is.na(uc_labo_coviggl_v2))
+}
+sel <- subset(data, !is.na(uc_ser_date_hour_v2) | !is.na(uc_labo_coviggl_v2) |
+                      !is.na(uc_labo_covigal_v2))
+if (FALSE) data[!(data$hid %in% tmp$hid), ]
+data <- sel
+rm(sel)
 
 # Duplicated IDs
 if (any(duplicated(data$hid))) stop("duplicated hid")
 
 # Serology
+if (FALSE) with(data, table(uc_labo_coviggl_v2, uc_labo_covigal_v2))
 for (x in c("uc_labo_coviggl_v2", "uc_labo_covigal_v2")) {
   i <- !is.na(data[[x]]) & grepl("(Négatif|Ind(e|é)terminé)", data[[x]])
   data[i, x] <- 0
@@ -25,6 +37,15 @@ for (x in c("uc_labo_coviggl_v2", "uc_labo_covigal_v2")) {
 }
 data$serol_both <- pmin(data$uc_labo_coviggl_v2 + data$uc_labo_covigal_v2, 1)
 rm(i, x)
+
+# Week number
+data$weeknbr <- as.integer(strftime(data$uc_ser_date_hour_v2, format = "%V"))
+if (FALSE) {
+  tmp <- as.data.frame(read_xlsx(data_file, sheet = "màj_10.12.2020"))
+  tmp <- merge(data[c("hid", "weeknbr")], tmp[c("hid", "weeknbr")], by = "hid")
+  all(tmp$weeknbr.y == tmp$weeknbr.x)
+  rm(tmp)
+}
 
 # Select observations
 if (FALSE) {
@@ -47,6 +68,7 @@ data$DDN[i] <- as.character(as.numeric(as.Date(sub("^10", "19", data$DDN[i])))
                               + delta)
 data$DDN <- as.Date(as.numeric(data$DDN), origin = "1899-12-30")
 rm(i, delta)
+if (any(is.na(data$DDN))) stop("Missing date of birth")
 
 # Contrôle de l'âge
 # Problème avec hid = 745932
@@ -158,15 +180,15 @@ igg <- c(npos = 343, tp = 338, nneg = 256, fp = 2)
 iga <- c(npos = 343, tp = 299, nneg = 256, fp = 4)
 both <- c(npos = 343, tp = 339, nneg = 256, fp = 4)
 
-
 # Stratum sizes
 aggregate(hid ~ stratum, data, length)
 
 # Grouped weeks
-if (!all(data$weeknbr %in% 43:49)) stop("Check weeknkr")
-for (k in 0:5) {
+#if (!all(data$weeknbr %in% 43:50)) stop("Check weeknkr")
+if (FALSE) table(data$weeknbr)
+for (k in 0:6) {
   gpa <- 43:(43 + k)
-  gpb <- (43:49)[!(43:49 %in% gpa)]
+  gpb <- (43:50)[!(43:50 %in% gpa)]
   Gpa <- paste(gpa, collapse = "-")
   Gpb <- paste(gpb, collapse = "-")
   data[[paste0("weekgp", k)]] <- ifelse(data$weeknbr %in% gpa, Gpa, Gpb)
@@ -205,17 +227,30 @@ prev <- lapply(1:2, function(j) {
     sp <- 1 - ig[["fp"]] / ig[["nneg"]]
     v_se <- se * (1 - se) / ig[["npos"]]
     v_sp <- sp * (1 - sp) / ig[["nneg"]]
-    dom <- c("all", "stratum", "weeknbr", paste0("weekgp", 0:5))
+    dom <- c("all", "stratum", "weeknbr")
     prev <- Mean(data = data, variable = vr, domain = dom)
+    W <- sort(unique(data$weeknbr))
+    prev_per_week <- do.call(rbind, lapply(W, function(w) {
+      wdata <- data[data$weeknbr %in% w, ]
+      prev <- Mean(data = wdata, variable = vr)
+      prev$domain <- "weeknbr (method 2)"
+      prev$value <- w
+      prev
+    }))
+    prev <- rbind(prev, prev_per_week)
     prev$prev <- (prev$y + sp - 1) / (se + sp - 1)
     prev_sim <- do.call(rbind, lapply(1:nrow(prev), function(i) {
-      y_sim <- rnorm(nsim, prev[i, "y"], sqrt(prev[i, "v"]))
+      if (!is.na(prev[i, "v"]) & !is.na(prev[i, "v"])) {
+        y_sim <- rnorm(nsim, prev[i, "y"], sqrt(prev[i, "v"]))
+      } else {
+        y_sim <- rep(NA, nsim)
+      }
       if (!is.na(se) & !is.na(v_se)) {
         se_sim <- rnorm(nsim, se, sqrt(v_se))
       } else {
         se_sim <- rep(NA, nsim)
       }
-      if (!is.na(se) & !is.na(v_se)) {
+      if (!is.na(sp) & !is.na(v_sp)) {
         sp_sim <- rnorm(nsim, sp, sqrt(v_sp))
       } else {
         sp_sim <- rep(NA, nsim)
@@ -238,11 +273,22 @@ prev <- lapply(1:2, function(j) {
 })
 names(prev) <- c("strates_3_8", "strates_4_8")
 
+# Number of observations per week and per stratum
+Nobs <- aggregate(uc_labo_coviggl_v2 ~ weeknbr + stratum, data, length)
+Nobs <- Nobs[order(Nobs$weeknbr, Nobs$stratum), ]
+
+# week 49
+tmp <- as.data.frame(read_xlsx(data_file, sheet = "màj_10.12.2020"))
+merge(tmp[tmp$weeknbr == 49, c("hid", "uc_labo_coviggl_v2")],
+      data[data$weeknbr %in% 49, c("hid", "uc_labo_coviggl_v2", "stratum")],
+      by = "hid", all = TRUE)
+
 # Export results
-sink("results/prev_2nd_wave_sessionInfo_20201210.txt")
+sink("results/prev_2nd_wave_sessionInfo_20201218.txt")
 print(sessionInfo(), locale = FALSE)
 sink()
-write_xlsx(c(prev, list(data = data)), "results/prev_2nd_wave_20201210.xlsx")
+write_xlsx(c(prev, list(nobs = Nobs, data = data)),
+           "results/prev_2nd_wave_20201218.xlsx")
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
