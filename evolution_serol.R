@@ -47,6 +47,11 @@ rm(X)
 # Data 2nd wave
 f_dta <- "data-raw/Intermed_results_Q2017_20201210_date_prélèvmt.xlsx"
 data2 <- as.data.frame(read_xlsx(f_dta, sheet = "màj_10.12.2020"))
+f_dta <- "data-raw/Intermed_results_Q2017_20201810_date_prélèvmt.xlsx"
+data2 <- as.data.frame(read_xlsx(f_dta, sheet = "màj_18.12.2020",
+                                 guess_max = 10^4))
+data2 <- subset(data2, !is.na(uc_ser_date_hour_v2) |
+  !is.na(uc_labo_coviggl_v2) | !is.na(uc_labo_covigal_v2))
 if (any(duplicated(data2$hid))) stop("ID not unique")
 rm(f_dta)
 
@@ -200,7 +205,7 @@ tot <- unlist(tot, recursive = FALSE)
 names(tot) <- c("IgG (1)", "IgG (2)", "IgA (1)", "IgA (2)")
 
 # Export results
-sink("results/evolution_serol_sessionInfo_20201210.txt")
+sink("results/evolution_serol_sessionInfo_20201218.txt")
 print(sessionInfo(), locale = FALSE)
 sink()
-write_xlsx(c(tot, list(data = data)), "results/evolution_serol_20201210.xlsx")
+write_xlsx(c(tot, list(data = data)), "results/evolution_serol_20201218.xlsx")
