@@ -41,12 +41,13 @@ if (FALSE) with(data1, table(serol_igg, serol_iga, useNA = "ifany"))
 # Select variables 1st wave
 X <- c("hid", "serol_igg_1", "serol_iga_1", "uc_age_in_months")
 data1 <- data1[X]
+names(data1)[names(data1) == "uc_age_in_months"] <- "age_in_months_wave1"
 rm(X)
 
 # Data 2nd wave
-f_dta <- "data-raw/Intermed_results_Q2017_20201123_date_prélèvmt.xlsx"
-data2 <- read_xlsx(f_dta, sheet = "màj_23.11", range = "A1:I1217")
-data2 <- as.data.frame(data2)
+f_dta <- "data-raw/Intermed_results_Q2017_20201210_date_prélèvmt.xlsx"
+data2 <- as.data.frame(read_xlsx(f_dta, sheet = "màj_10.12.2020"))
+if (any(duplicated(data2$hid))) stop("ID not unique")
 rm(f_dta)
 
 # Serology 2nd wave
@@ -63,20 +64,20 @@ for (x in c("uc_labo_coviggl_v2", "uc_labo_covigal_v2")) {
 }
 names(data2)[names(data2) == "uc_labo_coviggl_v2"] <- "serol_igg_2"
 names(data2)[names(data2) == "uc_labo_covigal_v2"] <- "serol_iga_2"
+names(data2)[names(data2) == "uc_labo_coviggr_v2"] <- "serol_igg_2_value"
+names(data2)[names(data2) == "uc_labo_covigar_v2"] <- "serol_iga_2_value"
 rm(i, x)
 
-# Select variables 2nd wave
-tmp <- unique(data2[c("hid", "DDN")])
-if (any(duplicated(tmp$hid))) stop("Duplicated date of birth")
-i <- grepl("^10[0-9]{2}-[0-9]{2}-[09]{2}$", tmp$DDN)
+# Date of birth 2nd wave
+i <- grepl("^10[0-9]{2}-[0-9]{2}-[09]{2}$", data2$DDN)
 delta <- as.numeric(as.Date("1970-01-01") - as.Date("1899-12-30"))
-tmp$DDN[i] <- as.character(as.numeric(as.Date(sub("^10", "19", tmp$DDN[i])))
-                             + delta)
-tmp$DDN <- as.Date(as.numeric(tmp$DDN), origin = "1899-12-30")
-data2 <- subset(data2, !is.na(serol_igg_2) | !is.na(serol_iga_2),
-                c("hid", "serol_igg_2", "serol_iga_2"))
-if (any(duplicated(data2$hid))) stop("Duplicated hid")
-data2 <- merge(data2, tmp, by = "hid", all = TRUE, sort = FALSE)
+data2$DDN[i] <- 
+  as.character(as.numeric(as.Date(sub("^10", "19", data2$DDN[i]))) + delta)
+data2$DDN <- as.Date(as.numeric(data2$DDN), origin = "1899-12-30")
+
+# Select variables 2nd wave
+data2 <- data2[!(names(data2) %in% 
+                   c("redcap_event_name", "uc_ser_date_hour_v2"))]
 
 # Merge waves 1 and 2
 data <- merge(data1, data2, by = "hid")
@@ -86,21 +87,12 @@ load("data/dataFSOsero_24092020.RData")
 tmp <- dataFSOsero[c("uc_info_participant_hid", "Date.of.birth")]
 tmp$Date.of.birth <- as.Date(tmp$Date.of.birth, format = "%d.%m.%Y")
 names(tmp)[names(tmp) == "uc_info_participant_hid"] <- "hid"
+if (any(duplicated(tmp$hid))) stop("ID not unique")
 data <- merge(data, tmp, by = "hid", all.x = TRUE, sort = FALSE)
 if (FALSE) {
   subset(data, !is.na(DDN) & !is.na(Date.of.birth) & DDN != Date.of.birth)
 }
 rm(dataFSOsero, tmp)
-
-# Duplicated IDs
-if (any(duplicated(data$hid))) {
-  dup_id <- function(.data, .id, .cols = NULL) {
-    if (is.null(.cols)) .cols <- names(.data)
-    data[data[[.id]] %in% .data[duplicated(.data[[.id]]), .id], .cols]
-  }
-  dup_id(data, "hid")
-  stop("duplicated hid")
-}
 
 # Select observations with at least one serology result
 i <- apply(!is.na(data[grep("^serol_ig(a|g)_(1|2)$", names(data))]), 1, any)
@@ -208,7 +200,7 @@ tot <- unlist(tot, recursive = FALSE)
 names(tot) <- c("IgG (1)", "IgG (2)", "IgA (1)", "IgA (2)")
 
 # Export results
-sink("results/evolution_serol_sessionInfo_20201124.txt")
+sink("results/evolution_serol_sessionInfo_20201210.txt")
 print(sessionInfo(), locale = FALSE)
 sink()
-write_xlsx(tot, "results/evolution_serol_20201124.xlsx")
+write_xlsx(c(tot, list(data = data)), "results/evolution_serol_20201210.xlsx")
