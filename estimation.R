@@ -5,9 +5,11 @@ library(writexl)
 setwd("~/Projects/SerocoViD")
 
 # Data
-data_file <- "data-raw/dataFSOsero_04.06.2020_v1.1.txt"
-data <- read.table(header = TRUE, file = data_file)
-data$Date.of.birth.FSO <- as.Date(data$Date.of.birth.FSO, format = "%d.%m.%Y")
+data_file <- "data-raw/extractforJP_29.6.2020.csv"
+data <- read.csv(data_file)
+data$X <- NULL
+data <- data[!is.na(data$serol), ]
+data$Date.of.birth.FSO <- as.Date(data$Date.of.birth.FSO)
 smpl <- read.csv("data-fso/COVID19_VD_V1_Total.csv", sep = ";")
 smpl$dateOfBirth <- as.Date(smpl$dateOfBirth)
 pop <- read_xlsx("data-fso/POPULATION PAR STRATES.xlsx", col_names = FALSE,
@@ -20,7 +22,7 @@ tmp <- unique(smpl[!is.na(smpl$strate), c("dateOfBirth", "strate")])
 names(tmp)[2] <- "stratum"
 data <- merge(data, tmp, by.x = "Date.of.birth.FSO", by.y = "dateOfBirth",
               all.x = TRUE, sort = FALSE)
-if (any(duplicated(data$uc_info_participant_hid))) stop()
+#if (any(duplicated(data$uc_info_participant_hid))) stop()
 if (any(is.na(data$stratum))) stop()
 rm(tmp)
 
@@ -61,6 +63,7 @@ prev <- function(.data = data, .strata = strata, domain = NULL) {
   .prev$upr <- .prev$p + qnorm(0.975) * sqrt(.prev$v)
   return(.prev)
 }
+prev()
 
 # Examples
 data$stratum1 <- as.numeric(data$stratum == 1)
