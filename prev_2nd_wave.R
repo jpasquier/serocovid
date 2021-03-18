@@ -33,6 +33,8 @@ for (x in c("uc_labo_coviggl_v2", "uc_labo_covigal_v2")) {
     stop("error in serology recoding")
   }
 }
+data$serol_both <- pmin(data$uc_labo_coviggl_v2 + data$uc_labo_covigal_v2, 1)
+
 
 # Select observations
 if (FALSE) {
@@ -65,6 +67,10 @@ data$DDN[i] <- as.character(as.numeric(as.Date(sub("^10", "19", data$DDN[i])))
                               + delta)
 data$DDN <- as.Date(as.numeric(data$DDN), origin = "1899-12-30")
 rm(i, delta)
+
+# week number grouped
+if (!all(data$weeknbr %in% 43:47)) stop("weeknbr")
+data$weeknbr_grp <- ifelse(data$weeknbr %in% 43:45, "43-44-45", "46-47")
 
 # Contrôle de l'âge
 # Problème avec hid = 745932
@@ -174,6 +180,8 @@ Mean <- function(data = data, variable = "serol", stratum = "stratum",
 # Sensitivity and specificity
 igg <- c(npos = 343, tp = 338, nneg = 256, fp = 2)
 iga <- c(npos = 343, tp = 299, nneg = 256, fp = 4)
+both <- c(npos = 343, tp = 339, nneg = 256, fp = 4)
+
 
 # Stratum sizes
 aggregate(hid ~ stratum, data, length)
@@ -192,22 +200,26 @@ prev <- lapply(1:2, function(j) {
     data <- data[!(data$stratum %in% 1:3), ]
     pop <- pop[!(pop$stratum %in% 1:3), ]
   }
-  do.call(rbind, lapply(1:2, function(k) {
+  do.call(rbind, lapply(1:3, function(k) {
     if (k == 1) {
       ab <- "IgG"
       vr <- "uc_labo_coviggl_v2"
       ig <- igg
-    } else {
+    } else if (k == 2) {
       ab <- "IgA"
       vr <- "uc_labo_covigal_v2"
       ig <- iga
+    } else {
+      ab <- "IgG or IgA"
+      vr <- "serol_both"
+      ig <- both
     }
     se <- ig[["tp"]] / ig[["npos"]]
     sp <- 1 - ig[["fp"]] / ig[["nneg"]]
     v_se <- se * (1 - se) / ig[["npos"]]
     v_sp <- sp * (1 - sp) / ig[["nneg"]]
     prev <- Mean(data = data, variable = vr,
-                 domain = c("all", "stratum", "weeknbr"))
+                 domain = c("weeknbr_grp"))
     prev$prev <- (prev$y + sp - 1) / (se + sp - 1)
     prev_sim <- do.call(rbind, lapply(1:nrow(prev), function(i) {
       y_sim <- rnorm(nsim, prev[i, "y"], sqrt(prev[i, "v"]))
@@ -240,10 +252,10 @@ prev <- lapply(1:2, function(j) {
 names(prev) <- c("strates_3_8", "strates_4_8")
 
 # Export results
-sink("results/prev_2nd_wave_sessionInfo_20201124.txt")
+sink("results/prev_2nd_wave_sessionInfo_20201202.txt")
 print(sessionInfo(), locale = FALSE)
 sink()
-write_xlsx(prev, "results/prev_2nd_wave_20201124.xlsx")
+write_xlsx(prev, "results/prev_2nd_wave_20201202.xlsx")
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
