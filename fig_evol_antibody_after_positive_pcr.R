@@ -14,11 +14,11 @@ setwd("~/Projects/SerocoViD")
 uri   <- "https://redcap.unisante.ch/api/"
 
 # Tokens
-tokens <- list(
-  corona_immunitas = "F1BFC49C8D21C355AE9946277DD52EDC",
-  personal_data    = "2553F65D05A7FB4FB8AAACE5BDE0784C",
-  research_data    = "C296C589D5FB1A89DBFC11D14EFA4365"
-)
+tokens <- c("corona_immunitas", "personal_data", "research_data")
+tokens <- lapply(setNames(tokens, tokens), function(z) {
+  z <- paste0("misc/redcap_", z, ".token")
+  readChar(z, file.info(z)$size - 1)
+})
 
 # Import
 tmp_file <- "/tmp/serocovid_data.rda"
