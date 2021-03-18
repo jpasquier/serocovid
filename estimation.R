@@ -5,7 +5,7 @@ library(writexl)
 setwd("~/Projects/SerocoViD")
 
 # Data
-load("data/dataFSOsero_08072020.RData")
+load("data/dataFSOsero_24092020.RData")
 
 # Population size
 pop <- read.table(header = TRUE, text = "
@@ -84,7 +84,16 @@ Mean <- function(data = data, variable = "serol", stratum = "stratum",
 
 
 # Examples
-Mean(dataFSOsero)
+
+dataFSOsero$all <- ""
+prev <- Mean(dataFSOsero, domain = c("all", "stratum", "uc_info_genre"))[
+  c("domain", "value", "y")]
+names(prev)[3] <- "ppos"
+se <- 0.966
+sp <- 0.997
+prev$prev <- (prev$ppos + sp - 1) / (se + sp - 1)
+write_xlsx(prev, "~/prev.xlsx")
+
 Mean(dataFSOsero, domain = c("stratum", "uc_info_genre"))
 dataFSOsero$strate_genre <- with(dataFSOsero, stratum * 10 + uc_info_genre)
 Mean(dataFSOsero, domain = "strate_genre")
