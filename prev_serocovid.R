@@ -416,7 +416,7 @@ fig <- lapply(list(1:3, c(1:2, 4), 1:4, 3:4), function(z) {
   visits <- c("May 3rd, 2020\nJuly, 7, 2020",
               "October 20, 2020\nDecember 12, 2020",
               "February 1st, 2021\nFebruary 6, 2021",
-              "Third visit without\nvaccinated people")
+              "Third survey without\nvaccinated people")
   if (length(z) == 4) {
     cols <- wes_palette(n = 4, name = "Darjeeling1")[c(1:2, 4, 3)]
   } else {
