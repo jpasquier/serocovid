@@ -4,6 +4,7 @@ library(writexl)
 library(ggplot2)
 library(ggforce)
 library(wesanderson)
+library(RColorBrewer)
 
 # Working directory
 setwd("~/Projects/SerocoViD")
@@ -14,11 +15,11 @@ setwd("~/Projects/SerocoViD")
 uri   <- "https://redcap.unisante.ch/api/"
 
 # Tokens
-tokens <- list(
-  corona_immunitas = "F1BFC49C8D21C355AE9946277DD52EDC",
-  personal_data    = "2553F65D05A7FB4FB8AAACE5BDE0784C",
-  research_data    = "C296C589D5FB1A89DBFC11D14EFA4365"
-)
+tokens <- c("corona_immunitas", "personal_data", "research_data")
+tokens <- lapply(setNames(tokens, tokens), function(z) {
+  z <- paste0("misc/redcap_", z, ".token")
+  readChar(z, file.info(z)$size - 1)
+})
 
 # Import
 tmp_file <- "/tmp/serocovid_data.rda"
@@ -121,7 +122,7 @@ subset(dob1, !is.na(stratum.0) & !is.na(stratum.2) &
 # Date of birth - final stratum
 # hid 647737 : On retient la strate correspondant à la date de naissance
 #              1983-03-31. La date de naissance 2019-03-31 ne pouvait pas
-#              être incluse dans l'échantillon (âge >= 6 mois)
+#              être incluse dans l'échantillon (condition : âge >= 6 mois)
 # hid 121212 : On retient la strate correspondant à la date de naissance
 #              1993-02-21 car c'est la seule disponnible
 dob1$stratum <- with(dob1, ifelse(hid == 121212, stratum.2, stratum.0))
@@ -367,7 +368,7 @@ dta2$all <- 0
 dta3$all <- 0
 long <- do.call(rbind, lapply(1:3, function(j) {
   v <- c("serol_any", "serol_igg", "serol_iga")[j]
-  w <- c("IgG ou IgA", "IgG", "IgA")[j]
+  w <- c("IgG or IgA", "IgG", "IgA")[j]
   do.call(rbind, lapply(0:4, function(k) {
     if (k <= 1) {
       dta <- dta1
@@ -397,50 +398,53 @@ long <- do.call(rbind, lapply(1:3, function(j) {
 long <- long[!(long$visit == 0 & long$value %in% c(0, 4:8)), ]
 long[long$visit == 0, "visit"] <- 1
 names(long)[names(long) == "y"] <- "ppos"
-long$antibody <- factor(long$antibody, c("IgG ou IgA", "IgG", "IgA"))
-long$visit <- factor(long$visit, 1:4, c(1:3, "3 sans vaccinés"))
+long$antibody <- factor(long$antibody, c("IgG or IgA", "IgG", "IgA"))
 long$domain <- factor(long$domain, c("all", "stratum"),
-                      c("Tous (15+)", "Groupes d'âge (années)"))
+                      c("All (15+)", "Age groups (years)"))
 long$value <- factor(long$value, 0:8,
-                     c("Tous", "6m-4", "5-9", "10-14", "15-19", "20-39",
+                     c("All", "6m-4", "5-9", "10-14", "15-19", "20-39",
                        "40-64", "65-74", ">=75"))
+long$v <- NULL
 long <- long[order(long$antibody, long$visit, long$value), ]
-write_xlsx(long, "results/prev_serocovid_20210218.xlsx")
+long_ex <- long
+long_ex$visit[long_ex$visit == 4] <- "3 vacc-"
+write_xlsx(long_ex, "results/prev_serocovid_20210318.xlsx")
+rm(long_ex)
 
 # Figure
-Z <- list(1:3, c(1:2, "3 sans vaccinés"), c(3, "3 sans vaccinés"))
-fig <- lapply(Z, function(z) {
-  if (length(z) == 2) {
-    cols <- wes_palette(n = 2, name = "IsleofDogs1")
+fig <- lapply(list(1:3, c(1:2, 4), 1:4, 3:4), function(z) {
+  visits <- c("May 3rd, 2020\nJuly, 7, 2020",
+              "October 20, 2020\nDecember 12, 2020",
+              "February 1st, 2021\nFebruary 6, 2021",
+              "Third visit without\nvaccinated people")
+  if (length(z) == 4) {
+    cols <- wes_palette(n = 4, name = "Darjeeling1")[c(1:2, 4, 3)]
   } else {
-    cols <- wes_palette(n = 3, name = "IsleofDogs1")[c(1, 3, 2)]
+    cols <- wes_palette(n = length(z), name = "Darjeeling1")
   }
-  p <- ggplot(subset(long, antibody == "IgG ou IgA" & visit %in% z),
-              aes(x = value, y = ppos, color = visit)) +
+  tmp <- subset(long, antibody == "IgG or IgA" & visit %in% z)
+  tmp$visit <- factor(tmp$visit, z, visits[z])
+  p <- ggplot(tmp, aes(x = value, y = ppos, color = visit)) +
     geom_point(position = position_dodge(width = 0.3)) +
     geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = 0,
                   position = position_dodge(width = 0.3)) +
     scale_y_continuous(labels = scales::percent) +
-    #theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     scale_color_manual(values = cols) +
-    labs(x = "", y = "Prévalence", color = "Enquête") +
+    labs(x = "", y = "Prevalence", color = "Surveys") +
     facet_row(vars(domain), scales = "free_x", space = "free") +
-    theme_bw()
+    theme_bw() +
+    theme(legend.text = element_text(size=rel(0.6)),
+          legend.key.size = unit(0.8, "cm"))
   return(p)
 })
-jpeg("results/prev_serocovid_fig1_20210218.jpg", height = 3600, width = 7200,
-     res = 1024)
-print(fig[[1]])
-dev.off()
-jpeg("results/prev_serocovid_fig2_20210218.jpg", height = 3600, width = 7200,
-     res = 1024)
-print(fig[[2]])
-dev.off()
-jpeg("results/prev_serocovid_fig3_20210218.jpg", height = 3600, width = 7200,
-     res = 1024)
-print(fig[[3]])
-dev.off()
+for (i in 1:length(fig)) {
+  jpeg(paste0("results/prev_serocovid_fig", i, "_20210318.jpg"),
+       height = 3600, width = 9000, res = 1024)
+  print(fig[[i]])
+  dev.off()
+}
+rm(i)
 
 #
 rm(serocovid_data)
-save.image("results/prev_serocovid_20210218.dta", compress = "xz")
+save.image("results/prev_serocovid_20210318.dta", compress = "xz")
