@@ -6,73 +6,120 @@ setwd("~/Projects/SerocoViD")
 
 # Data
 load("data/dataFSOsero_08072020.RData")
-data_file <- "data-raw/extractforJP_29.6.2020.csv"
-data <- read.csv(data_file)
-data$X <- NULL
-data <- data[!is.na(data$serol), ]
-data$Date.of.birth.FSO <- as.Date(data$Date.of.birth.FSO)
-smpl <- read.csv("data-fso/COVID19_VD_V1_Total.csv", sep = ";")
-smpl$dateOfBirth <- as.Date(smpl$dateOfBirth)
-pop <- read_xlsx("data-fso/POPULATION PAR STRATES.xlsx", col_names = FALSE,
-                 range = "B7:C14")
-pop <- as.data.frame(pop)
-colnames(pop) <- c("stratum", "N")
 
-# Adds stratum variable to the data
-tmp <- unique(smpl[!is.na(smpl$strate), c("dateOfBirth", "strate")])
-names(tmp)[2] <- "stratum"
-data <- merge(data, tmp, by.x = "Date.of.birth.FSO", by.y = "dateOfBirth",
-              all.x = TRUE, sort = FALSE)
-#if (any(duplicated(data$uc_info_participant_hid))) stop()
-if (any(is.na(data$stratum))) stop()
-rm(tmp)
-
-# Strata size
-strata <- aggregate(uc_info_participant_hid ~ stratum, data, length)
-names(strata)[2] <- "n"
-strata <- merge(strata, pop, by = "stratum")
+# Population size
+pop <- read.table(header = TRUE, text = "
+  stratum       N
+        1   37490
+        2   42538
+        3   42700
+        4   42171
+        5  212336
+        6  268898
+        7   67412
+        8   63097
+")
 
 # Estimation
 # Variance: Cochran, W. G., Sampling techniques John Wiley & Sons, 1977,
 #           page 144, formula 5A.75
-# domain: dummy variable, =1 if the observation is in the domain, =0 if not
+# domain: any variable
 
-prev <- function(.data = data, .strata = strata, domain = NULL) {
+data <- dataFSOsero
+variable <- "serol"
+stratum <- "stratum"
+domain <- "uc_info_genre"
+d <- domain[1]
+
+Mean <- function(data = data, variable = "serol", stratum = "stratum",
+                 domain = NULL, .pop = pop) {
+  # select observed values
+  data <- data[!is.na(data[[variable]]) & !is.na(data[[stratum]]), ]
+  # formula variable ~ stratum
+  f <- as.formula(paste(variable, "~", stratum))
+  # stratum sizes
+  strata <- aggregate(f, data, length)
+  names(strata) <- c("stratum", "n")
+  strata <- merge(pop, strata, by = "stratum")
+  # convert N and n to numeric to avoid the 'integer overflow' problem
+  strata$N <- as.numeric(strata$N)
+  strata$n <- as.numeric(strata$n)
+  # no domain
   if (is.null(domain)) {
-    .data$.all <- 1
+    data$.all <- 1
     domain <- ".all"
   }
-  .prev <- do.call(rbind, lapply(domain, function(z) {
-    .data.sub <- .data[.data[[z]] == 1, c("stratum", "serol")]
-    # prevalence by domain and strata
-    p <- aggregate(serol ~ stratum, .data.sub, mean)
-    names(p)[2] <- "p"
-    # sample size of domain by strata
-    m <- aggregate(serol ~ stratum, .data.sub, length)
-    names(m)[2] <- "m"
-    # merge prevalences and sizes with strata
-    .strata.sub <- merge(.strata, p, by = "stratum")
-    .strata.sub <- merge(.strata.sub, m, by = "stratum")
-    #
-    M <- sum(with(.strata.sub, N / n * m))
-    P <- sum(with(.strata.sub, N / n * m * p)) / M
-    V <- sum(with(.strata.sub, N * (N - n)/ (n * (n - 1)) * m * 
-                                 (p * (1 - p) + (1 - m / n) * (p - P)^2))) / M^2
-    data.frame(domain = z, N = M, n = sum(m[2]), p = P, v = V)
+  # convert domains to factors
+  for (d in domain) {
+    data[[d]] <- factor(data[[d]])
+  }
+  .mean <- do.call(rbind, lapply(domain, function(d) {
+    do.call(rbind, lapply(levels(data[[d]]), function(z) {
+      data.sub <- data[data[[d]] == z, c(stratum, variable)]
+      # sample size of domain by strata
+      m <- aggregate(f, data.sub, length)
+      names(m) <- c("stratum", "m")
+      # mean by domain and strata
+      y <- aggregate(f, data.sub, mean)
+      names(y) <- c("stratum", "y")
+      # sum of squares by domain and strata
+      ss <- aggregate(f, data.sub, function(u) sum((u - mean(u))^2))
+      names(ss) <- c("stratum", "ss")
+      # merge prevalences and sizes with strata
+      strata.sub <- merge(strata, m, by = "stratum")
+      strata.sub <- merge(strata.sub, y, by = "stratum")
+      strata.sub <- merge(strata.sub, ss, by = "stratum")
+      #
+      M <- sum(with(strata.sub, N / n * m))
+      Y <- sum(with(strata.sub, N / n * m * y)) / M
+      V <- sum(with(strata.sub, N * (N - n) / (n * (n - 1)) * 
+                                  (ss + m * (1 - m / n) * (y - Y)^2))) / M^2
+      data.frame(domain = d, value = z, N = M, n = sum(m[2]), y = Y, v = V)
+    }))
   }))
-  .prev$lwr <- .prev$p - qnorm(0.975) * sqrt(.prev$v)
-  .prev$upr <- .prev$p + qnorm(0.975) * sqrt(.prev$v)
-  return(.prev)
+  .mean$lwr <- .mean$y - qnorm(0.975) * sqrt(.mean$v)
+  .mean$upr <- .mean$y + qnorm(0.975) * sqrt(.mean$v)
+  return(.mean)
 }
-b <- prev()
 
 
-with(dataFSOsero, table(district, stratum))
+# Examples
+Mean(dataFSOsero)
+Mean(dataFSOsero, domain = c("stratum", "uc_info_genre"))
+dataFSOsero$strate_genre <- with(dataFSOsero, stratum * 10 + uc_info_genre)
+Mean(dataFSOsero, domain = "strate_genre")
+Mean(dataFSOsero, variable = "age")
+Mean(dataFSOsero, variable = "age", domain = c("stratum", "uc_info_genre"))
 
-do.call(rbind, lapply(unique(dataFSOsero$district), function(d) {
-  dataFSOsero[[d]] <- as.numeric(dataFSOsero$district == d)
-  prev(.data = dataFSOsero, domain = d)
-}))
-with(dataFSOsero[dataFSOsero$district == "Lausanne District", ],
-     table(stratum, serol))
-.data.sub <- dataFSOsero[dataFSOsero$district == "Lausanne District", ]
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
+# With the survey package
+library(survey)
+tmp <- dataFSOsero[!is.na(dataFSOsero$serol), ]
+wgt <- aggregate(serol ~ stratum, tmp, length)
+names(wgt)[2] <- "n"
+wgt <- merge(wgt, pop, by = "stratum")
+wgt$wgt <- wgt$N / wgt$n
+tmp <- merge(tmp, wgt, by = "stratum")
+d <- svydesign(
+  id = ~uc_info_participant_hid,
+  strata = ~stratum,
+  weights = ~wgt,
+  data = tmp,
+  fpc = ~N
+)
+(prev <- svymean(~serol, d))
+confint(prev)
+confint(prev, df = sum(wgt$n) - nrow(wgt)) # loi de Student au lieu de la loi normale
+(prev_by_gender <- svyby(~serol, ~uc_info_genre, design = d, svymean))
+confint(prev_by_gender)
+(age_by_gender <- svyby(~age, ~uc_info_genre, design = d, svymean))
+confint(age_by_gender)
+
+# chisq test with the survey package
+svychisq(~serol+uc_info_genre, d, statistic = "Chisq")
+
+fit <- svyglm(serol ~ uc_info_genre, d, family = quasibinomial)
+cbind(exp(cbind(odds_ratio = coef(fit), confint(fit))), p_value = coef(summary(fit))[, 4])[-1, , drop = FALSE]
