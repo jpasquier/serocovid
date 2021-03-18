@@ -5,6 +5,7 @@ library(writexl)
 setwd("~/Projects/SerocoViD")
 
 # Data
+load("data/dataFSOsero_08072020.RData")
 data_file <- "data-raw/extractforJP_29.6.2020.csv"
 data <- read.csv(data_file)
 data$X <- NULL
@@ -56,28 +57,22 @@ prev <- function(.data = data, .strata = strata, domain = NULL) {
     M <- sum(with(.strata.sub, N / n * m))
     P <- sum(with(.strata.sub, N / n * m * p)) / M
     V <- sum(with(.strata.sub, N * (N - n)/ (n * (n - 1)) * m * 
-                                 (p * (1 - p) + (1 - m / n) * (p - P)))) / M^2
+                                 (p * (1 - p) + (1 - m / n) * (p - P)^2))) / M^2
     data.frame(domain = z, N = M, n = sum(m[2]), p = P, v = V)
   }))
   .prev$lwr <- .prev$p - qnorm(0.975) * sqrt(.prev$v)
   .prev$upr <- .prev$p + qnorm(0.975) * sqrt(.prev$v)
   return(.prev)
 }
-prev()
-
-# Examples
-data$stratum1 <- as.numeric(data$stratum == 1)
-data$stratum2 <- as.numeric(data$stratum == 2)
-data$stratum3 <- as.numeric(data$stratum == 3)
-data$stratum4 <- as.numeric(data$stratum == 4)
-data$stratum5 <- as.numeric(data$stratum == 5)
-data$stratum6 <- as.numeric(data$stratum == 6)
-data$stratum7 <- as.numeric(data$stratum == 7)
-data$stratum8 <- as.numeric(data$stratum == 8)
-data$genre1 <- as.numeric(data$uc_info_genre == 1)
-data$genre2 <- as.numeric(data$uc_info_genre == 2)
-data$strata6genre1 <- data$stratum6 * data$genre1
-dlist <- c(paste0("stratum", 1:8), c("genre1", "genre2", "strata6genre1"))
-prev(domain = dlist)
+b <- prev()
 
 
+with(dataFSOsero, table(district, stratum))
+
+do.call(rbind, lapply(unique(dataFSOsero$district), function(d) {
+  dataFSOsero[[d]] <- as.numeric(dataFSOsero$district == d)
+  prev(.data = dataFSOsero, domain = d)
+}))
+with(dataFSOsero[dataFSOsero$district == "Lausanne District", ],
+     table(stratum, serol))
+.data.sub <- dataFSOsero[dataFSOsero$district == "Lausanne District", ]
