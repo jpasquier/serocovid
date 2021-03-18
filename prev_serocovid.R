@@ -295,11 +295,11 @@ pop3 <- read.table(header = TRUE, text = "
 # Vaccinated persons - Survey 3
 vac3 <-  read.table(header = TRUE, text = "
   stratum       N
-        4       0
-        5       0
-        6       0
-        7    7665
-        8   23580
+        4     162
+        5    4328
+        6   10132
+        7    5609
+        8   17851
 ")
 
 # ------------------------------- Estimation -------------------------------- #
@@ -365,7 +365,10 @@ Mean <- function(data = data, variable = "serol", stratum = "stratum",
 dta1$all <- 0
 dta2$all <- 0
 dta3$all <- 0
-long <- do.call(rbind, lapply(0:4, function(k) {
+long <- do.call(rbind, lapply(1:3, function(j) {
+  v <- c("serol_any", "serol_igg", "serol_iga")[j]
+  w <- c("IgG ou IgA", "IgG", "IgA")[j]
+  do.call(rbind, lapply(0:4, function(k) {
     if (k <= 1) {
       dta <- dta1
     } else if (k == 2) {
@@ -373,7 +376,7 @@ long <- do.call(rbind, lapply(0:4, function(k) {
     } else if (k == 3) {
       dta <- dta3
     } else {
-      dta <- dta3[dta3$bl_vac_yn %in% 2 | dta3$stratum <= 6, ]
+      dta <- dta3[dta3$bl_vac_yn %in% 2, ]
     }
     if (k >= 1) {
       dta <- subset(dta, stratum >= 4)
@@ -386,31 +389,33 @@ long <- do.call(rbind, lapply(0:4, function(k) {
       pop <- merge(pop3, vac3, by = "stratum", suffixes = c(".all", ".vac"))
       pop$N <- pop$N.all - pop$N.vac
     }
-    p <- Mean(data = dta, variable = "serol_any", stratum = "stratum",
+    p <- Mean(data = dta, variable = v, stratum = "stratum",
               domain = c("all", "stratum"), pop = pop)
-     cbind(visit = k, p)
+     cbind(antibody = w, visit = k, p)
+  }))
 }))
 long <- long[!(long$visit == 0 & long$value %in% c(0, 4:8)), ]
 long[long$visit == 0, "visit"] <- 1
 names(long)[names(long) == "y"] <- "ppos"
-long$visit <- factor(long$visit, 1:4, c(1:3, "3 sans vaccinés 65+"))
+long$antibody <- factor(long$antibody, c("IgG ou IgA", "IgG", "IgA"))
+long$visit <- factor(long$visit, 1:4, c(1:3, "3 sans vaccinés"))
 long$domain <- factor(long$domain, c("all", "stratum"),
                       c("Tous (15+)", "Groupes d'âge (années)"))
 long$value <- factor(long$value, 0:8,
                      c("Tous", "6m-4", "5-9", "10-14", "15-19", "20-39",
                        "40-64", "65-74", ">=75"))
-long <- long[order(long$visit, long$value), ]
-write_xlsx(long, "results/prev_serocovid_20210217.xlsx")
+long <- long[order(long$antibody, long$visit, long$value), ]
+write_xlsx(long, "results/prev_serocovid_20210218.xlsx")
 
 # Figure
-Z <- list(1:3, c(1:2, "3 sans vaccinés 65+"), c(3, "3 sans vaccinés 65+"))
+Z <- list(1:3, c(1:2, "3 sans vaccinés"), c(3, "3 sans vaccinés"))
 fig <- lapply(Z, function(z) {
   if (length(z) == 2) {
     cols <- wes_palette(n = 2, name = "IsleofDogs1")
   } else {
     cols <- wes_palette(n = 3, name = "IsleofDogs1")[c(1, 3, 2)]
   }
-  p <- ggplot(subset(long, visit %in% z),
+  p <- ggplot(subset(long, antibody == "IgG ou IgA" & visit %in% z),
               aes(x = value, y = ppos, color = visit)) +
     geom_point(position = position_dodge(width = 0.3)) +
     geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), width = 0,
@@ -423,19 +428,19 @@ fig <- lapply(Z, function(z) {
     theme_bw()
   return(p)
 })
-jpeg("results/prev_serocovid_fig1_20210217.jpg", height = 3600, width = 7200,
+jpeg("results/prev_serocovid_fig1_20210218.jpg", height = 3600, width = 7200,
      res = 1024)
 print(fig[[1]])
 dev.off()
-jpeg("results/prev_serocovid_fig2_20210217.jpg", height = 3600, width = 7200,
+jpeg("results/prev_serocovid_fig2_20210218.jpg", height = 3600, width = 7200,
      res = 1024)
 print(fig[[2]])
 dev.off()
-jpeg("results/prev_serocovid_fig3_20210217.jpg", height = 3600, width = 7200,
+jpeg("results/prev_serocovid_fig3_20210218.jpg", height = 3600, width = 7200,
      res = 1024)
 print(fig[[3]])
 dev.off()
 
 #
 rm(serocovid_data)
-save.image("results/prev_serocovid_20210217.dta", compress = "xz")
+save.image("results/prev_serocovid_20210218.dta", compress = "xz")
