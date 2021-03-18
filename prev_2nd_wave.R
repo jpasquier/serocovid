@@ -85,7 +85,7 @@ if (FALSE) {
   tmp[tmp$hid == 745932, ]
   rm(tmp)
 }
-data <- data[data$hid != 745932, ]
+#data <- data[data$hid != 745932, ]
 
 # Strata
 smpl <- read.csv("data-fso/COVID19_VD_V1_Total.csv", sep = ";")
@@ -96,6 +96,7 @@ tmp <- do.call(rbind, lapply(sort(unique(tmp$strate)), function(i) {
   data.frame(DDN = seq(min(z), max(z), by = 1), stratum = i)
 }))
 data <- merge(data, tmp, by = "DDN", all.x = TRUE, sort = FALSE)
+data[data$hid == 745932, "stratum"] <- 6
 if (any(duplicated(data$hid))) stop("duplicated hid")
 if (any(is.na(data$stratum))) stop("missing stratum")
 rm(tmp)
@@ -239,10 +240,10 @@ prev <- lapply(1:2, function(j) {
 names(prev) <- c("strates_3_8", "strates_4_8")
 
 # Export results
-sink("results/prev_2nd_wave_sessionInfo_20201123.txt")
+sink("results/prev_2nd_wave_sessionInfo_20201124.txt")
 print(sessionInfo(), locale = FALSE)
 sink()
-write_xlsx(prev, "results/prev_2nd_wave_20201123.xlsx")
+write_xlsx(prev, "results/prev_2nd_wave_20201124.xlsx")
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
