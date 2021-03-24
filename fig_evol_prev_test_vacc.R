@@ -57,7 +57,7 @@ vacc <- aggregate(Nombre.de.doses ~ date + Dose.1.ou.2, vacc, sum) %>%
 
 # Figure
 k <- 2 * 10^5
-lgd <- c("Positive PCR/TDR tests",
+lgd <- c("Positive PCR/TDR cases",
          "Cumulative number of vaccinated people (one or two doses)")
 clr <- setNames(wes_palette(n = 2, name = "Darjeeling1"), lgd)
 fig <- ggplot(prev, aes(x = date, y = ppos)) +
@@ -67,19 +67,22 @@ fig <- ggplot(prev, aes(x = date, y = ppos)) +
            data = pcrpos, stat = "identity",
            alpha = 0.7) +
   geom_bar(aes(y = N1 / k, fill = names(clr)[2]),
-           data = vacc, stat = "identity", alpha = 0.7) +
+           data = vacc, stat = "identity", alpha = 0.5) +
   scale_fill_manual(values = clr) +
   scale_y_continuous(labels = scales::percent,
-                     sec.axis = sec_axis(trans =~ . * k)) +
+                     sec.axis = sec_axis(trans =~ . * k, name = "Number of cases")) +
   labs(x = "", y = "Prevalence", fill = "") +
   theme(legend.position = "bottom", legend.text = element_text(size=rel(1.2)),
         axis.title = element_text(size = rel(1.2)),
-        axis.text = element_text(size = rel(1.2)))
-jpeg("results/fig_evol_prev_test_vacc_20210318.jpg", height = 3600,
+        axis.text = element_text(size = rel(1.2))) +
+  guides(fill = guide_legend(override.aes = list(alpha = 0.5)))
+jpeg("results/fig_evol_prev_test_vacc_20210323.jpg", height = 3600,
      width = 7200, res = 512)
 print(fig)
 dev.off()
 
 # Export data
+if (FALSE) {
 write_xlsx(list(prev = prev, pcrpos = pcrpos, vacc = vacc),
-           "results/fig_evol_prev_test_vacc_data_20210318.xlsx")
+           "results/fig_evol_prev_test_vacc_data_20210323.xlsx")
+}

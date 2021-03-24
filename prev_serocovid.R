@@ -408,7 +408,7 @@ long$v <- NULL
 long <- long[order(long$antibody, long$visit, long$value), ]
 long_ex <- long
 long_ex$visit[long_ex$visit == 4] <- "3 vacc-"
-write_xlsx(long_ex, "results/prev_serocovid_20210318.xlsx")
+if (FALSE) write_xlsx(long_ex, "results/prev_serocovid_20210323.xlsx")
 rm(long_ex)
 
 # Figure
@@ -418,7 +418,7 @@ fig <- lapply(list(1:3, c(1:2, 4), 1:4, 3:4), function(z) {
               "February 1st, 2021\nFebruary 6, 2021",
               "Third survey without\nvaccinated people")
   if (length(z) == 4) {
-    cols <- wes_palette(n = 4, name = "Darjeeling1")[c(1:2, 4, 3)]
+    cols <- c(wes_palette(n = 4, name = "Darjeeling1")[c(1:2, 4)], "grey55")
   } else {
     cols <- wes_palette(n = length(z), name = "Darjeeling1")
   }
@@ -437,8 +437,8 @@ fig <- lapply(list(1:3, c(1:2, 4), 1:4, 3:4), function(z) {
           legend.key.size = unit(0.8, "cm"))
   return(p)
 })
-for (i in 1:length(fig)) {
-  jpeg(paste0("results/prev_serocovid_fig", i, "_20210318.jpg"),
+for (i in 3) { # 1:length(fig)) {
+  jpeg(paste0("results/prev_serocovid_fig", i, "_20210323.jpg"),
        height = 3600, width = 9000, res = 1024)
   print(fig[[i]])
   dev.off()
@@ -447,4 +447,4 @@ rm(i)
 
 #
 rm(serocovid_data)
-save.image("results/prev_serocovid_20210318.dta", compress = "xz")
+if (FALSE) save.image("results/prev_serocovid_20210323.dta", compress = "xz")
