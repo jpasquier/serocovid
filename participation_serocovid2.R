@@ -27,6 +27,10 @@ if (file.exists(tmp_file)) {
 }
 rm(uri, tokens, tmp_file)
 
+# -------------------------- Strata - Survey 1 & 2 -------------------------- #
+
+# Strata are determined 
+strata <- readRDS("data/strata_serocovid_1_2.rds")
 
 # ------------------------ Research data - Survey 1 ------------------------- #
 
@@ -73,6 +77,10 @@ dta1$serol_any <- pmin(dta1$serol_igg + dta1$serol_iga, 1)
 with(dta1, table(!is.na(serol_igg), !is.na(serol_iga)))
 dta1 <- dta1[!is.na(dta1$serol_igg) | !is.na(dta1$serol_iga), ]
 
+# Add strata
+dta1 <- merge(dta1, strata, by = "hid", all.x = TRUE)
+if (any(is.na(dta1$stratum))) stop("missing stratum")
+
 # ------------------------ Research data - Survey 2 ------------------------- #
 
 # Personal data - type of participant and date of birth
@@ -117,6 +125,10 @@ dta2 <- dta2[!is.na(dta2$serol_igg) | !is.na(dta2$serol_iga), ]
 with(dta2, addmargins(table(serol_igg, serol_iga,
                            uc_s_type_participant, useNA = "ifany")))
 
+# Add strata
+dta2 <- merge(dta2, strata, by = "hid", all.x = TRUE)
+if (any(is.na(dta2$stratum))) stop("missing stratum")
+
 # --------------------------------------------------------------------------- #
 # Taux de participation à SerocoViD 2 en fonction du résultat de SerocoViD 1  #
 # --------------------------------------------------------------------------- #
@@ -135,3 +147,18 @@ lapply(c("igg", "iga", "any"), function(x) {
   fisher_test <- fisher.test(cbind(R$n, R$N - R$n))
   return(list(R, prop_test, fisher_test))
 })
+rm(V)
+
+# ------------- Taux de participation à SerocoViD 2, par strate ------------- #
+
+# Response rate
+tmp <- merge(dta1[c("hid", "stratum")], dta2[c("hid", "serol_igg")],
+             by = "hid", all.x = TRUE)
+tmp$respondent <- !is.na(tmp$serol_igg)
+response_rate <- aggregate(respondent ~ stratum, tmp, mean)
+names(response_rate)[2] <- "response_rate"
+response_rate <- subset(response_rate, stratum >= 4)
+rm(tmp)
+
+# Save response rate
+saveRDS(response_rate, "data/response_rate_v2.rds")
