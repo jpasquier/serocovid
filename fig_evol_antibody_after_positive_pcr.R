@@ -125,7 +125,7 @@ options(scipen=10000)
 K <- list(with_hosp = 1, without_hosp = 2, vacc = 3, vacc_pos = 4)
 fig_log_igg <- lapply(K, function(k) {
   dta_pcr <- subset(dta3, serol_igg == 1 & bl_vac_yn == 2 & pcr_result %in% 1)
-  dta_serol_nvac <- subset(dta3, serol_igg == 1 & bl_vac_yn == 2)
+  dta_serol_nvac <- subset(dta3, serol_igg == 1 & bl_vac_yn == 2 & !(pcr_result %in% 1))
   dta_serol_vac <- subset(dta3, serol_igg == 1 & bl_vac_yn == 1)
   dta_vac <- subset(dta3, bl_vac_yn == 1)
   if (k == 1) {
@@ -215,8 +215,8 @@ fig_log_igg <- lapply(K, function(k) {
       breaks = c(x.breaks, x.bp),
       labels = c(x.breaks,
                  paste0("TDR/PCR+\nvacc-\n(", nrow(dta_pcr), ")"),
-                 paste0("serol+\nvacc-\n(", nrow(dta_serol_nvac), ")"),
-                 paste0("serol+\nvacc+\n(", nrow(dta_serol_vac), ")"))
+                 paste0("NoTest+\nvacc-\n(", nrow(dta_serol_nvac), ")"),
+                 paste0("\nvacc+\n(", nrow(dta_serol_vac), ")"))
     ) +
     theme_bw()
   if (k %in% c(1, 3:4)) {
