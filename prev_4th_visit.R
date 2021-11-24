@@ -79,11 +79,6 @@ if (any(!is.na(serol$serol) & serol$serol == 9)) {
 }
 rm(u0, u1)
 
-###############################################################################
-# TEMPORARY !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-#serol$serol <- rbinom(nrow(serol), 1, 0.8)
-###############################################################################
-
 # ----------------------- FSO sample (original file) ------------------------ #
 
 # Import sample and select variables
@@ -232,55 +227,60 @@ margins <- do.call(base::c, lapply(unique(margins$variable), function(v) {
 margins <- c(`(Intercept)` = tot, margins)
 rm(tot)
 
-
-#################################
-
-
-
-# net sample - all participants with a serology
-net <- aggregate(resp ~ strate, smpl, mean)
-names(net)[2] <- "resprate"
-net <- merge(subset(smpl, resp == 1), net, by = "strate")
-net$w0 <- net$wsmpl / net$resprate
-net <- svydesign(id = ~hid, strata = ~strate, weights = ~w0, fpc = ~N,
-                 data = net)
-
-# net sample - participants with a serology and a vaccination status
-vnet <- aggregate(respvac ~ strate, smpl, mean)
-names(vnet)[2] <- "resprate"
-vnet <- merge(subset(smpl, respvac == 1), vnet, by = "strate")
-vnet$w0 <- vnet$wsmpl / vnet$resprate
-vnet <- svydesign(id = ~hid, strata = ~strate, weights = ~w0, fpc = ~N,
-                  data = vnet)
-
 # prévalence avec calage (raking)
 prev <- lapply(1:2, function(k) {
+  smpl$all <- "All"
+  smpl$grp1 <- c(rep("1: 6m-19", 4), rep("2: 20-64", 2),
+                 rep("3: >=65", 2))[smpl$strate]
+  smpl$grp2 <- c("6m-4", rep(">=5", 7))[smpl$strate]
+  smpl$grp3 <- c(rep("1: 6m-9", 2), rep("2: >=10", 6))[smpl$strate]
+  smpl$vac2 <- with(smpl, ifelse(is.na(vac), "3: missing",
+                                ifelse(vac == "y", "2: yes", "1: no")))
+  smpl$vac2 <- paste("vac:", smpl$vac2)
+  smpl$vac0 <- c(n = 0, y = 1)[smpl$vac]
+  smpl$serol2 <- c("seroneg", "seropos")[smpl$serol + 1]
   if (k == 1) {
-    d <- net$variables
+    net <- aggregate(resp ~ strate, smpl, mean)
+    names(net)[2] <- "resprate"
+    net <- merge(subset(smpl, resp == 1), net, by = "strate")
     L <- 1:3
   } else {
-    d <- vnet$variables
+    net <- aggregate(respvac ~ strate, smpl, mean)
+    names(net)[2] <- "resprate"
+    net <- merge(subset(smpl, respvac == 1), net, by = "strate")
     L <- 1:9
   }
-  n <- rbind(data.frame(strate = 0, n = nrow(d)),
-             setNames(aggregate(serol ~ strate, d, length), c("strate", "n")))
-  m <- rbind(data.frame(strate = 0, npos = sum(d$serol)),
-             setNames(aggregate(serol ~ strate, d, sum),
-                      c("strate", "npos")))
-  p <- rbind(data.frame(strate = 0, prop = mean(d$serol)),
-             setNames(aggregate(serol ~ strate, d, mean),
-                      c("strate", "prop")))
-  s <- merge(merge(n, m, by = "strate"), p, by = "strate")
-  if (k == 2) {
-    v0 <- rbind(data.frame(strate = 0, nvac = sum(d$vac == "y")),
-                setNames(aggregate(I(vac == "y") ~ strate, d, sum),
-                         c("strate", "nvac")))
-    v1 <- rbind(data.frame(strate = 0,
-                           nvacpos = sum(d$vac == "y" & d$serol == 1)),
-                setNames(aggregate(I(vac == "y" & serol == 1) ~ strate, d, sum),
-                         c("strate", "nvacpos")))
-    s <- merge(merge(s, v0, by = "strate"), v1, by = "strate")
-  }
+  net$w0 <- net$wsmpl / net$resprate
+  net <- svydesign(id = ~hid, strata = ~strate, weights = ~w0, fpc = ~N,
+                   data = net)
+  d <- net$variables
+  strate_names <- c("6m-4", "5-9", "10-14", "15-19", "20-39", "40-64", "65-74",
+                    ">=75")
+  fmls <- list(~all, ~strate, ~grp1, ~grp2, ~grp3, ~vac2, ~stratevac, ~serol2)
+  s <- do.call(rbind, lapply(1:length(fmls), function(j) {
+    fml <- update(fmls[[j]], serol ~ .)
+    n <- setNames(aggregate(fml, d, length), c("domaine", "n"))
+    m <- setNames(aggregate(fml, d, sum), c("domaine", "npos"))
+    p <- setNames(aggregate(fml, d, mean), c("domaine", "prop"))
+    s <- merge(merge(n, m, by = "domaine"), p, by = "domaine")
+    if (k == 2) {
+      fml <- update(fml, I(vac == "y") ~ .)
+      v0 <- setNames(aggregate(fml, d, sum), c("domaine", "nvac"))
+      fml <- update(fml, I(vac == "y" & serol == 1) ~ .)
+      v1 <- setNames(aggregate(fml, d, sum), c("domaine", "nvacpos"))
+      s <- merge(merge(s, v0, by = "domaine"), v1, by = "domaine")
+    }
+    if (any(grepl("^strate$", fml))) {
+      s$domaine <- strate_names[as.numeric(as.character(s$domaine))]
+    }
+    if (any(grepl("^grp2$", fml))) {
+      s <- s[s$domaine != "6m-4", ]
+    }
+    if (any(grepl("^stratevac$", fml))) {
+      s$domaine <- paste("stratevac:", as.character(s$domaine))
+    }
+    cbind(domaine_index = j * 100 + 1:nrow(s), s)
+  }))
   for (l in L) {
     i.mrg <- grep("Intercept", names(margins))
     if (l <= 3) {
@@ -303,16 +303,36 @@ prev <- lapply(1:2, function(k) {
       i.mrg <- c(i.mrg, grep("sex|natio|marit|house", names(margins)))
     }
     mrg <- margins[i.mrg]
-    d <- calibrate(design = list(net, vnet)[[k]], formula = fml,
-                   population = mrg, calfun = "raking")
-    z0 <- svymean(~serol, d)
-    z0  <- c(0, z0[[1]], confint(z0))
-    z1 <- svyby(~serol, ~strate, d, svymean)
-    z1 <- cbind(z1[, 1:2], confint(z1))
-    z1$strate <- as.numeric(as.character(z1$strate))
-    v <- c("strate", paste0("prev_cal", l, c("", "_lwr", "_upr")))
-    s <- merge(s, rbind(setNames(z0, v), setNames(z1, v)), by = "strate")
+    d <- calibrate(design = net, formula = fml, population = mrg,
+                   calfun = "raking")
+    z <- do.call(rbind, lapply(fmls, function(fml) {
+      z <- svyby(~serol, fml, d, svymean)
+      z <- cbind(z[, 1:2], confint(z))
+      v <- c("domaine", paste0("prev_cal", l, c("", "_lwr", "_upr")))
+      z <- setNames(z, v)
+      if (k == 2 & l <= 3) {
+        z1 <- svyby(~vac0, fml, d, svymean)
+        z1 <- cbind(z1[, 1:2], confint(z1))
+        v1 <- c("domaine", paste0("vac_rate_cal", l, c("", "_lwr", "_upr")))
+        z1 <- setNames(z1, v1)
+        z <- merge(z, z1, by = "domaine")
+      }
+      if (any(grepl("^strate$", fml))) {
+        z$domaine <- strate_names[as.numeric(as.character(z$domaine))]
+      }
+      if (any(grepl("^grp2$", fml))) {
+        z <- z[z$domaine != "6m-4", ]
+      }
+      if (any(grepl("^stratevac$", fml))) {
+        z$domaine <- paste("stratevac:", as.character(z$domaine))
+      }
+      z
+    }))
+    s <- merge(s, z, by = "domaine")
   }
+  s <- s[order(s$domaine_index), ]
+  s$domaine_index <- NULL
+  s$domaine <- sub("^[0-9]: ", "", s$domaine)
   s
 })
 prev[[3]] <- data.frame(calage = 1:9, variables = c(
@@ -326,7 +346,8 @@ prev[[3]] <- data.frame(calage = 1:9, variables = c(
  "strate * vaccination + nationalité (suisse/étranger)",
  "strate * vaccination + sexe + nationalité + état civil + taille du ménage"
 ))
-write_xlsx(prev, paste0("results/prev_4th_visit_", format(Sys.Date(), "%Y%m%d"), ".xlsx"))
+write_xlsx(prev, paste0("results/prev_4th_visit_",
+                        format(Sys.Date(), "%Y%m%d"), ".xlsx"))
 
 
 ###############################################################################
