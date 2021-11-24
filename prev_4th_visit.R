@@ -4,6 +4,8 @@ library(RCurl)
 library(writexl)
 library(XML)
 
+options(mc.cores = detectCores() - 1)
+
 # Working directory
 setwd("~/Projects/SerocoViD")
 
@@ -78,6 +80,27 @@ if (any(!is.na(serol$serol) & serol$serol == 9)) {
   stop("error in serology recoding")
 }
 rm(u0, u1)
+
+# Serology - level
+u0 <- "uc_labo_qc_v4"
+u1 <- "uc_labo_coviggl_spe_v4"
+if (any(is.na(serol[[u0]]) | is.na(serol[[u1]]))) stop("missing values")
+for (i in 1:3) {
+  v <- paste0("serol_", c("low", "medium", "high")[i])
+  w <- c("faible", "moyen", "élevé")[i]
+  W <- c("négatif", "faible", "moyen", "élevé")
+  W <- W[W != w]
+  serol[[v]] <- 9
+  serol[serol[u0] != "OK" | serol[[u1]] == "", v] <- NA
+  serol[serol[u0] == "OK" & serol[[u1]] %in% W, v] <- 0
+  serol[serol[u0] == "OK" & serol[[u1]] == w, v] <- 1
+  if (any(!is.na(serol[[v]]) & serol[[v]] == 9)) {
+    stop("error in serology recoding")
+  }
+}
+rm(i, u0, u1, v, w, W)
+with(serol, table(serol, serol_low + serol_medium * 10 + serol_high * 100,
+                  useNA = "ifany"))
 
 # ----------------------- FSO sample (original file) ------------------------ #
 
@@ -234,6 +257,8 @@ prev <- lapply(1:2, function(k) {
                  rep("3: >=65", 2))[smpl$strate]
   smpl$grp2 <- c("6m-4", rep(">=5", 7))[smpl$strate]
   smpl$grp3 <- c(rep("1: 6m-9", 2), rep("2: >=10", 6))[smpl$strate]
+  smpl$grp4 <- c(rep("1: 6m-14", 3), rep("2: >=15", 5))[smpl$strate]
+  smpl$grp5 <- c(rep("1: 6m-19", 3), rep("2: >=20", 5))[smpl$strate]
   smpl$vac2 <- with(smpl, ifelse(is.na(vac), "3: missing",
                                 ifelse(vac == "y", "2: yes", "1: no")))
   smpl$vac2 <- paste("vac:", smpl$vac2)
@@ -256,8 +281,9 @@ prev <- lapply(1:2, function(k) {
   d <- net$variables
   strate_names <- c("6m-4", "5-9", "10-14", "15-19", "20-39", "40-64", "65-74",
                     ">=75")
-  fmls <- list(~all, ~strate, ~grp1, ~grp2, ~grp3, ~vac2, ~stratevac, ~serol2)
-  s <- do.call(rbind, lapply(1:length(fmls), function(j) {
+  fmls <- list(~all, ~strate, ~grp1, ~grp2, ~grp3, ~grp4, ~grp5, ~vac2,
+               ~stratevac, ~serol2)
+  s <- do.call(rbind, mclapply(1:length(fmls), function(j) {
     fml <- update(fmls[[j]], serol ~ .)
     n <- setNames(aggregate(fml, d, length), c("domaine", "n"))
     m <- setNames(aggregate(fml, d, sum), c("domaine", "npos"))
@@ -275,6 +301,9 @@ prev <- lapply(1:2, function(k) {
     }
     if (any(grepl("^grp2$", fml))) {
       s <- s[s$domaine != "6m-4", ]
+    }
+    if (any(grepl("^grp5$", fml))) {
+      s <- s[s$domaine != "1: 6m-19", ]
     }
     if (any(grepl("^stratevac$", fml))) {
       s$domaine <- paste("stratevac:", as.character(s$domaine))
@@ -305,11 +334,22 @@ prev <- lapply(1:2, function(k) {
     mrg <- margins[i.mrg]
     d <- calibrate(design = net, formula = fml, population = mrg,
                    calfun = "raking")
-    z <- do.call(rbind, lapply(fmls, function(fml) {
-      z <- svyby(~serol, fml, d, svymean)
-      z <- cbind(z[, 1:2], confint(z))
-      v <- c("domaine", paste0("prev_cal", l, c("", "_lwr", "_upr")))
-      z <- setNames(z, v)
+    z <- do.call(rbind, mclapply(fmls, function(fml) {
+      ################
+      # z <- svyby(~serol, fml, d, svymean)
+      # z <- cbind(z[, 1:2], confint(z))
+      # v <- c("domaine", paste0("prev_cal", l, c("", "_lwr", "_upr")))
+      # z <- setNames(z, v)
+      ###############
+      Merge <- function(x, y) merge(x, y, by = "domaine")
+      U <- c("", "_low", "_medium", "_high")
+      z <- Reduce(Merge, lapply(U, function(u) {
+        z <- svyby(as.formula(paste0("~serol", u)), fml, d, svymean)
+        z <- cbind(z[, 1:2], confint(z))
+        v <- c("domaine", paste0("prev", u, "_cal", l, c("", "_lwr", "_upr")))
+        z <- setNames(z, v)
+      }))
+      ###############
       if (k == 2 & l <= 3) {
         z1 <- svyby(~vac0, fml, d, svymean)
         z1 <- cbind(z1[, 1:2], confint(z1))
@@ -322,6 +362,9 @@ prev <- lapply(1:2, function(k) {
       }
       if (any(grepl("^grp2$", fml))) {
         z <- z[z$domaine != "6m-4", ]
+      }
+      if (any(grepl("^grp5$", fml))) {
+        z <- z[z$domaine != "1: 6m-19", ]
       }
       if (any(grepl("^stratevac$", fml))) {
         z$domaine <- paste("stratevac:", as.character(z$domaine))
