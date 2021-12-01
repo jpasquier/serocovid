@@ -263,6 +263,7 @@ prev <- lapply(1:2, function(k) {
                                 ifelse(vac == "y", "2: yes", "1: no")))
   smpl$vac2 <- paste("vac:", smpl$vac2)
   smpl$vac0 <- c(n = 0, y = 1)[smpl$vac]
+  smpl$vacpos <- smpl$serol * smpl$vac0
   smpl$serol2 <- c("seroneg", "seropos")[smpl$serol + 1]
   if (k == 1) {
     net <- aggregate(resp ~ strate, smpl, mean)
@@ -355,7 +356,11 @@ prev <- lapply(1:2, function(k) {
         z1 <- cbind(z1[, 1:2], confint(z1))
         v1 <- c("domaine", paste0("vac_rate_cal", l, c("", "_lwr", "_upr")))
         z1 <- setNames(z1, v1)
-        z <- merge(z, z1, by = "domaine")
+        z2 <- svyby(~vacpos, fml, d, svymean)
+        z2 <- cbind(z2[, 1:2], confint(z2))
+        v2 <- c("domaine", paste0("vacpos_rate_cal", l, c("", "_lwr", "_upr")))
+        z2 <- setNames(z2, v2)
+        z <- Reduce(Merge, list(z, z1, z2))
       }
       if (any(grepl("^strate$", fml))) {
         z$domaine <- strate_names[as.numeric(as.character(z$domaine))]
