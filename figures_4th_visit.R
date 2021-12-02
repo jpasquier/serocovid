@@ -1,110 +1,13 @@
-library(RCurl)
-library(XML)
 library(dplyr)
 library(ggplot2)
 library(gridExtra)
+library(survey)
 
 # Working directory
 setwd("~/Projects/SerocoViD")
 
-# ------------------------------- REDCap data ------------------------------- #
-
-# API
-uri   <- "https://redcap.unisante.ch/api/"
-
-# Tokens
-tokens <- c("corona_immunitas", "personal_data")
-tokens <- lapply(setNames(tokens, tokens), function(z) {
-  z <- paste0("misc/redcap_", z, ".token")
-  readChar(z, file.info(z)$size - 1)
-})
-
-# Import data with the API (RCurl)
-tmp_file <- "/mnt/ramdisk/serocovid_data.rda"
-if (file.exists(tmp_file)) {
-  load(tmp_file)
-} else {
-  serocovid_data <- lapply(tokens, function(token) {
-    read.csv(text = postForm(
-      uri = uri,
-      token = token,
-      content = 'record',
-      format = 'csv'
-    ))
-  })
-  save(serocovid_data, file = tmp_file)
-}
-rm(uri, tokens, tmp_file)
-
-# -------------------------------- Serology --------------------------------- #
-
-# Select variables
-V_serol <- grep("covigg.+v4$", names(serocovid_data$corona_immunitas),
-                value = TRUE)
-V_serol <- c("hid", V_serol, "bl_vac_yn_ph4", "uc_labo_qc_v4")
-pdta <- unique(serocovid_data$personal_data[
-  c("uc_s_participant_hid", "uc_s_type_participant", "uc_s_strate_3")])
-serol <- serocovid_data$corona_immunitas[V_serol]
-serol <- merge(serol, pdta, by.x = "hid", by.y = "uc_s_participant_hid",
-               all.x = TRUE)
-if (any(is.na(serol$uc_s_type_participant))) {
-  stop("missing type of participant")
-}
-rm(pdta, V_serol)
-
-# Select observation of survey 4
-serol <- serol[serol$uc_s_type_participant %in% 14, ]
-serol$uc_s_type_participant <- NULL
-
-
-# Remove fake participants
-hid_fake_participants <- c("13131313", "987654321")
-serol[serol$hid %in% hid_fake_participants, ]
-serol <- serol[!(serol$hid %in% hid_fake_participants), ]
-rm(hid_fake_participants)
-
-# Serology
-if (FALSE) {
-  with(serol, table(uc_labo_coviggl_v4, bl_vac_yn_ph4, useNA = "ifany"))
-  with(serol, table(uc_labo_coviggl_v4, uc_labo_qc_v4, useNA = "ifany"))
-}
-u0 <- "uc_labo_qc_v4"
-u1 <- "uc_labo_coviggl_v4"
-if (any(is.na(serol[[u0]]) | is.na(serol[[u1]]))) stop("missing values")
-serol$serol <- 9
-serol[serol[u0] != "OK" | serol[[u1]] == "", "serol"] <- NA
-serol[serol[u0] == "OK" & serol[[u1]] == "négatif", "serol"] <- 0
-serol[serol[u0] == "OK" & serol[[u1]] == "positif", "serol"] <- 1
-if (any(!is.na(serol$serol) & serol$serol == 9)) {
-  stop("error in serology recoding")
-}
-rm(u0, u1)
-
-# Import uc_labo_coviggr_Zscore_v4 from xlsx file
-if (FALSE) {
-d1 <- unique(serocovid_data$personal_data[
-  c("uc_s_participant_sid", "uc_s_participant_hid")])
-names(d1) <- sub("uc_s_participant_", "", names(d1))
-d2 <- readxl::read_xlsx(sheet = "ALL_CHIPS",
-  "data-raw/20211130_results_all_plates_envoi_unisante_v2_Zscore.xlsx")
-d2 <- d2 %>%
-  select(sid = `SID participant`,
-         uc_labo_coviggr_zscore_v4 = uc_labo_coviggr_Zscore_v4) %>%
-  left_join(d1, by = "sid") %>%
-  select(-sid)
-serol <- serol %>%
-  select(-uc_labo_coviggr_zscore_v4) %>%
-  left_join(d2, by = "hid")
-rm(d1, d2)
-}
-
-# Serology - Numeric value
-if (any(is.na(serol$uc_labo_coviggr_v4) & !is.na(serol$serol))) stop()
-serol$serol_num_unstandardized <-
-  with(serol, ifelse(!is.na(serol), uc_labo_coviggr_v4, NA))
-if (any(is.na(serol$uc_labo_coviggr_zscore_v4) & !is.na(serol$serol))) stop()
-serol$serol_num <-
-  with(serol, ifelse(!is.na(serol), uc_labo_coviggr_zscore_v4, NA))
+# Prepare data
+source("R/prepare_data_4th_visit.R")
 
 # Compare original and standardized values
 dta <- serol %>%
@@ -128,50 +31,66 @@ dev.off()
 rm(dta, p1, p2)
 
 # Boxplots
-dta <- serol %>%
-  select(uc_s_strate_3, serol, serol_num, bl_vac_yn_ph4) %>%
-  rename(strate = uc_s_strate_3) %>%
+dta <- smpl %>%
+  group_by(strate) %>%
+  summarise(resprate = mean(respvac)) %>%
+  inner_join(filter(smpl, respvac == 1), by = "strate") %>%
   mutate(
+    w = wsmpl / resprate,
     strate = factor(strate, 1:8, c("6m-4", "5-9", "10-14", "15-19", "20-39",
                                    "40-64", "65-74", ">=75")),
-    vac = factor(bl_vac_yn_ph4, 1:2, c("Vaccinated", "Not vaccinated"))
+    vac = factor(vac, c("y", "n"), c("Vaccinated", "Not vaccinated"))
   ) %>%
-  na.omit() %>%
   filter(serol == 1)
-tiff("results/antibody_score_4th_visit_by_vac.tiff",
-     height = 3600, width = 5400, res = 1024, compression = "zip")
-p1 <- ggplot(dta, aes(x = vac, y = serol_num)) +
-  geom_boxplot() +
-  labs(x = "", y = "IgG score", subtitle = "By vaccination status",
-       title = "Antibody score", caption = paste("N =", nrow(dta)))
-print(p1)
-dev.off()
-tiff("results/antibody_score_4th_visit_by_vac_and_age.tiff",
-     height = 3600, width = 7200, res = 768, compression = "zip")
-p2 <- ggplot(dta, aes(x = strate, y = serol_num)) +
-  geom_boxplot() +
-  facet_grid(rows = vars(vac), scales = "free") +
-  labs(x = "", y = "IgG score", subtitle = "By vaccination status and age",
-       title = "Antibody score", caption = paste("N =", nrow(dta)))
-print(p2)
-dev.off()
-tiff("results/antibody_log_score_4th_visit_by_vac.tiff",
-     height = 3600, width = 5400, res = 1024, compression = "zip")
-p3 <- ggplot(dta, aes(x = vac, y = log(serol_num))) +
-  geom_boxplot() +
-  labs(x = "", y = "IgG log score", subtitle = "By vaccination status",
-       title = "Antibody log score", caption = paste("N =", nrow(dta)))
-print(p3)
-dev.off()
-tiff("results/antibody_log_score_4th_visit_by_vac_and_age.tiff",
-     height = 3600, width = 7200, res = 768, compression = "zip")
-p4 <- ggplot(dta, aes(x = strate, y = log(serol_num))) +
-  geom_boxplot() +
-  facet_grid(rows = vars(vac), scales = "free") +
-  labs(x = "", y = "IgG log score", subtitle = "By vaccination status and age",
-       title = "Antibody log score", caption = paste("N =", nrow(dta)))
-print(p4)
-dev.off()
-rm(dta, p1, p2, p3, p4)
+figs <- lapply(1:4, function(k) {
+  x <- if (k %% 2 == 1) "vac" else "strate"
+  n_fun <- function(x) data.frame(y = c(-20, 0.3)[(k + 1) %/% 2], 
+                                  label = paste0("(", length(x), ")"))
+  p <- ggplot(dta, aes_string(x = x, y = "serol_num")) +
+    stat_summary(fun.data = n_fun, geom = "text", hjust = 0.5, size = 1.8)
+  y_lab <- "IgG score"
+  ttl <- "Antibody score"
+  sttl <- "By vaccination status"
+  cap <- paste("N =", nrow(dta))
+  m <- list(filename = "results/antibody_score_4th_visit_by_vac.tiff",
+            height = 3600, width = 5400, res = 1024, compression = "zip")
+  if (k %% 2 == 1) {
+    p <- p + geom_boxplot(aes(weight = w))
+    cap <- paste("Weighted data,", cap)
+  } else {
+    p <- p + 
+      geom_boxplot() +
+      facet_grid(rows = vars(vac), scales = "free")
+    sttl <- paste(sttl, "and age")
+    m$filename <- sub("by_vac", "by_vac_and_age", m$filename)
+    m$width <- 7200
+    m$res <- 768
+  }
+  if (k >= 3) {
+    b <- c(3, 10, 30, 100, 300)
+    p <- p + scale_y_continuous(breaks = b, trans = "log10", labels = b)
+    y_lab <- paste(y_lab, "(log scale)")
+    m$filename <- sub("score", "log_score", m$filename)
+  }
+  p <- p + labs(x = "", y = y_lab, subtitle = sttl, title = ttl, caption = cap)
+  attr(p, "metadata") <- m
+  return(p)
+})
+for (fig in figs) {
+  do.call(tiff, attr(fig, "metadata"))
+  print(fig)
+  dev.off()
+}
 
+# Weighted quantiles
+# https://stats.stackexchange.com/questions/13169
+wgt.quantile <- function(x, w, p)  {
+  w <- w[order(x)]
+  x <- sort(x)
+  n <- length(w)
+  s <- 0:(n - 1) * w + (n - 1) * c(0, cumsum(w)[-n])
+  k <- max(which(s / s[n] <= p))
+  x[k] + (x[k+1] - x[k]) * (p * s[n] - s[k]) / (s[k + 1] - s[k])
+}
+with(dta, wgt.quantile(serol_num, w, .75))
 
