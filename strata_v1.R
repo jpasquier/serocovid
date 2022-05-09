@@ -1,34 +1,7 @@
-library(REDCapR)
 library(readxl)
 
 # Working directory
 setwd("~/Projects/SerocoViD")
-
-# ------------------------------- REDCap data ------------------------------- #
-
-# API
-uri   <- "https://redcap.unisante.ch/api/"
-
-# Tokens
-tokens <- c("corona_immunitas", "personal_data", "research_data")
-tokens <- lapply(setNames(tokens, tokens), function(z) {
-  z <- paste0("misc/redcap_", z, ".token")
-  readChar(z, file.info(z)$size - 1)
-})
-
-# Import
-tmp_file <- "/tmp/serocovid_data.rda"
-if (file.exists(tmp_file)) {
-  load(tmp_file)
-} else {
-  serocovid_data <- lapply(tokens, function(token) {
-    redcap_read(redcap_uri = uri, token = token)$data
-  })
-  save(serocovid_data, file = tmp_file)
-}
-rm(uri, tokens, tmp_file)
-
-# ----------------- Date of birth / Stratum - Survey 1 & 2 ------------------ #
 
 # Date of birth
 dob1 <- read.csv("data-raw/fso_sid_hid_dob_v2.csv", sep = ";")
@@ -124,4 +97,6 @@ if (any(is.na(dob1$stratum))) stop("missing stratum")
 if (any(duplicated(dob1$hid))) stop("duplicated hid")
 
 # Save strata
-saveRDS(dob1[c("hid", "stratum")], "data/strata_serocovid_1_2.rds")
+saveRDS(dob1[c("hid", "stratum")], "data/strata_v1.rds", compress = "xz")
+write.table(dob1[c("hid", "stratum")], "data/strata_v1.csv", sep = ";",
+            row.names = FALSE)
