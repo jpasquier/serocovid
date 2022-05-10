@@ -2,6 +2,7 @@ library(readxl)
 library(ISOweek)
 library(ggplot2)
 library(dplyr)
+library(scales)
 library(tidyr)
 library(wesanderson)
 library(writexl)
@@ -9,25 +10,27 @@ library(writexl)
 # Working directory
 setwd("~/Projects/SerocoViD")
 
-# Import data
-dta <- list(
-  pcrpos = "data-misc/dgs/Cas par semaine, cl. d'âge et sexe.xlsx",
-  prev   = "results/prev_serocovid_20210318.xlsx"
-)
-dta <- lapply(dta, read_xlsx)
-dta <- lapply(dta, as.data.frame)
-f <- "Tableau statistique des doses par centre-data-15-03-2021 15 08 59.csv"
-dta$vacc <- read.csv(file.path("data-misc/vacovid", f))
-rm(f)
+# Age groups
+age_grps <- c("6m-4", "5-9", "10-14", "15-19",
+              "20-39", "40-64", "65-74", "75+")
 
+# Positive tests
 # REMARQUE DE LA DGS : La définition de « semaine » est celle que nous
 # utilisons dans EPICOVID (première semaine avec au moins quatre jours dans la
 # même année civile, du lundi au dimanche).
-pcrpos <- aggregate(count ~ year + week, dta$pcrpos, sum) %>%
-  arrange(year, week) %>%
-  mutate(cumcount = cumsum(count),
-         date = paste0(year, "-W", sprintf("%02d", week), "-4"),
-         date = ISOweek2date(date))
+pcrpos <- local({
+  z <- "data_cases_weekly_gender_agegr_serocovid";
+  f <- paste0("data-misc/dgs/", z, ".RData");
+  load(f);
+  get(z)
+}) %>%
+  filter(!(age_group %in% c("0-5m", "Inconnu"))) %>%
+  group_by(year, week, age_group) %>%
+  summarise(count = sum(count, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    age_group = factor(sub("\\s?ans", "", age_group), age_grps),
+    date = ISOweek2date(paste0(year, "-W", sprintf("%02d", week), "-4"))
+  )
 
 # Median date of surveys
 visits <- read.table(header = TRUE, text = "
@@ -35,54 +38,63 @@ visits <- read.table(header = TRUE, text = "
       1   2020-06-07
       2   2020-11-15
       3   2021-02-03
+      4   2021-10-01
 ")
 visits$date <- as.Date(visits$date)
 
 # Prevalence (proportion of positive people)
-prev <- subset(dta$prev, antibody == "IgG or IgA" & domain == "All (15+)" &
-                           visit %in% 1:3)
-prev <- merge(prev, visits, by = "visit")
+prev <- readRDS("results/prev_serocovid_20220509.rds") %>%
+  filter(antibody == "IgG", domain == "stratum",
+         !(visit == 2 & value == "10-14")) %>%
+  rename(prev = ppos) %>%
+  mutate(age_group = factor(sub(">=75", "75+", value), age_grps)) %>%
+  left_join(visits, by = "visit")
 
 # Number of vaccinated people (source: VaCoViD)
-vacc <- dta$vacc
-vacc$date <- ISOweek2date(paste0(ISOweek(as.Date(vacc$Date.injection)), "-4"))
-vacc <- aggregate(Nombre.de.doses ~ date + Dose.1.ou.2, vacc, sum) %>%
-  rename(dose = Dose.1.ou.2, n = Nombre.de.doses) %>%
-  mutate(dose = sub("Dose ", "", dose)) %>%
-  filter(date <= as.Date("2021-02-04")) %>%
-  pivot_wider(names_from = dose, values_from = n, names_prefix = "n",
-              values_fill = 0) %>%
-  arrange(date) %>%
-  mutate(N1 = cumsum(n1), N2 = cumsum(n2))
+vacc <- read_xlsx("data-misc/vacovid/Statistiques_premieres_doses.xlsx",
+                  range = cell_cols("A:D")) %>%
+  mutate(
+    age_group = sub("et \\+", "+", gsub("Entre|ans", "", Group_Age)),
+    age_group = sub("et", "-", sub("4 +et moins", "6m-4", age_group)),
+    age_group = factor(gsub("\\s+", "", age_group), age_grps),
+    date = ISOweek2date(paste0(annee_injection, "-W",
+                               sprintf("%02d", semaine_injection), "-4"))
+  ) %>%
+  rename(n1 = Count_all) %>%
+  arrange(age_group, date) %>%
+  group_by(age_group) %>%
+  mutate(N1 = cumsum(n1))
 
 # Figure
-k <- 2 * 10^5
+k <- 22000
 lgd <- c("Positive PCR/TDR cases",
-         "Cumulative number of vaccinated people (one or two doses)")
+         "Number of vaccinated people (one dose or more)")
 clr <- setNames(wes_palette(n = 2, name = "Darjeeling1"), lgd)
-fig <- ggplot(prev, aes(x = date, y = ppos)) +
-  geom_point(size = 5) +
+fig <- ggplot(prev, aes(x = date, y = prev)) +
+  geom_point(size = 1) +
   geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), size = 1.2, width = 0) +
   geom_bar(aes(y = count / k, fill = names(clr)[1]),
            data = pcrpos, stat = "identity",
            alpha = 0.7) +
-  geom_bar(aes(y = N1 / k, fill = names(clr)[2]),
+  geom_bar(aes(y = n1 / k, fill = names(clr)[2]),
            data = vacc, stat = "identity", alpha = 0.5) +
   scale_fill_manual(values = clr) +
-  scale_y_continuous(labels = scales::percent,
+  scale_y_continuous(labels = percent,
                      sec.axis = sec_axis(trans =~ . * k, name = "Number of cases")) +
+  facet_grid(cols = vars(age_group)) +
   labs(x = "", y = "Prevalence", fill = "") +
   theme(legend.position = "bottom", legend.text = element_text(size=rel(1.2)),
         axis.title = element_text(size = rel(1.2)),
         axis.text = element_text(size = rel(1.2))) +
   guides(fill = guide_legend(override.aes = list(alpha = 0.5)))
-jpeg("results/fig_evol_prev_test_vacc_20210323.jpg", height = 3600,
-     width = 7200, res = 512)
+fig
+jpeg("results/fig_evol_prev_test_vacc_DEV.jpg", height = 3600,
+     width = 7200, res = 256)
 print(fig)
 dev.off()
 
 # Export data
 if (FALSE) {
 write_xlsx(list(prev = prev, pcrpos = pcrpos, vacc = vacc),
-           "results/fig_evol_prev_test_vacc_data_20210323.xlsx")
+           "results/fig_evol_prev_test_vacc_data_DEV.xlsx")
 }
