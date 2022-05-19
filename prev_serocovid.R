@@ -160,7 +160,7 @@ pdta4 <- unique(serocovid_data$personal_data[vars])
 if (any(duplicated(pdta4$uc_s_participant_hid))) {
   stop("Duplicated hid")
 }
-vars <- c("hid", "uc_labo_qc_v4", "uc_labo_coviggl_v4")
+vars <- c("hid", "uc_labo_qc_v4", "uc_labo_coviggl_v4", "bl_vac_yn_ph4")
 dta4 <- serocovid_data$corona_immunitas[vars]
 dta4 <- merge(dta4, pdta4, by.x = "hid", by.y = "uc_s_participant_hid",
               all.x = TRUE)
@@ -260,28 +260,38 @@ Mean <- function(data = data, variable = "serol", stratum = "stratum",
 # Estimation by survey
 long <- do.call(rbind, mclapply(1:4, function(j) {
   dta <- get(paste0("dta", j))
-  dta$all <- 0
-  dta$p15 <- as.numeric(dta$stratum >= 4) + 9
+  if (j == 2) dta <- dta[dta$stratum != 3, ]
+  dta$all <- factor("All")
+  dta$p15 <- factor(as.numeric(dta$stratum >= 4), 0:1, c("<=14", ">=15"))
+  stratum_levels <- c("6m-4", "5-9", "10-14", "15-19", "20-39", "40-64",
+                      "65-74", ">=75")
+  dta$stratum <- factor(dta$stratum, 1:8, stratum_levels)
+  pop$stratum <- factor(pop$stratum, 1:8, stratum_levels)
+  domains <- c("all", "p15", "stratum")
+  if (j >= 3) {
+    names(dta)[grep("^bl_vac_yn", names(dta))] <- "vac"
+    dta$vac <- factor(dta$vac, 1:2, c("vac", "unvac"))
+    for (d in domains) {
+      x <- paste0(d, "_vac")
+      dta[[x]] <- interaction(dta[[d]], dta$vac)
+      domains <- c(domains, x)
+    }
+  }
   K <- if (j <= 3) 1:3 else 2
   do.call(rbind, lapply(K, function(k) {
     v <- c("serol_any", "serol_igg", "serol_iga")[k]
     w <- c("IgG or IgA", "IgG", "IgA")[k]
-    p <- Mean(data = dta, variable = v, stratum = "stratum",
-              domain = c("all", "p15", "stratum"),
+    p <- Mean(data = dta, variable = v, stratum = "stratum", domain = domains,
               pop = subset(pop, survey == c(1, 1, 3:4)[j]))
      cbind(antibody = w, visit = j, p)
   }))
 }))
 names(long)[names(long) == "y"] <- "ppos"
 long$antibody <- factor(long$antibody, c("IgG or IgA", "IgG", "IgA"))
-long$value <- as.numeric(long$value)
-long$value <- factor(long$value, 0:10,
-                     c("All", "6m-4", "5-9", "10-14", "15-19", "20-39",
-                       "40-64", "65-74", ">=75", "<=14", ">=15"))
 long$v <- NULL
 if (TRUE) {
-  write_xlsx(long, "results/prev_serocovid_20220509.xlsx")
-  saveRDS(long, "results/prev_serocovid_20220509.rds", compress = "xz")
+  write_xlsx(long, "results/prev_serocovid_20220519.xlsx")
+  saveRDS(long, "results/prev_serocovid_20220519.rds", compress = "xz")
 }
 
 # Figure
@@ -326,4 +336,4 @@ if (FALSE) {
 
 #
 rm(serocovid_data)
-if (TRUE) save.image("results/prev_serocovid_20220509.dta", compress = "xz")
+if (TRUE) save.image("results/prev_serocovid_20220519.rda", compress = "xz")
