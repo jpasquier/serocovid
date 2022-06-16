@@ -1,7 +1,9 @@
-library(readxl)
 library(ISOweek)
-library(ggplot2)
 library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(grid)
+library(readxl)
 library(scales)
 library(tidyr)
 library(wesanderson)
@@ -65,12 +67,18 @@ vacc <- read_xlsx("data-misc/vacovid/Statistiques_premieres_doses.xlsx",
   group_by(age_group) %>%
   mutate(N1 = cumsum(n1))
 
+# Maximum number of cases per age class
+max_cases <- full_join(pcrpos, vacc, by = c("age_group", "date")) %>%
+  mutate(max_cases = pmax(count, n1, na.rm = TRUE)) %>%
+  group_by(age_group) %>%
+  summarize(max_cases = max(max_cases))
+
 # Figure
 k <- 22000
 lgd <- c("Positive PCR/TDR cases",
          "Number of vaccinated people (one dose or more)")
 clr <- setNames(wes_palette(n = 2, name = "Darjeeling1"), lgd)
-fig <- ggplot(prev, aes(x = date, y = prev)) +
+fig1 <- ggplot(prev, aes(x = date, y = prev)) +
   geom_point(size = 1) +
   geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), size = 1.2, width = 0) +
   geom_bar(aes(y = count / k, fill = names(clr)[1]),
@@ -80,17 +88,55 @@ fig <- ggplot(prev, aes(x = date, y = prev)) +
            data = vacc, stat = "identity", alpha = 0.5) +
   scale_fill_manual(values = clr) +
   scale_y_continuous(labels = percent,
-                     sec.axis = sec_axis(trans =~ . * k, name = "Number of cases")) +
-  facet_grid(cols = vars(age_group)) +
+                     sec.axis = sec_axis(trans =~ . * k,
+                                         name = "Number of cases")) +
+  facet_grid(rows = vars(age_group)) +
   labs(x = "", y = "Prevalence", fill = "") +
   theme(legend.position = "bottom", legend.text = element_text(size=rel(1.2)),
         axis.title = element_text(size = rel(1.2)),
         axis.text = element_text(size = rel(1.2))) +
   guides(fill = guide_legend(override.aes = list(alpha = 0.5)))
-fig
-jpeg("results/fig_evol_prev_test_vacc_DEV.jpg", height = 3600,
-     width = 7200, res = 256)
-print(fig)
+fig1
+
+# Figure - With a different scale on each facet for the second axis
+fig2 <- lapply(age_grps, function(a) {
+  k <- filter(max_cases, age_group == a)$max_cases * 1.1
+  fig <- ggplot(filter(prev, age_group == a), aes(x = date, y = prev)) +
+    geom_point(size = 1) +
+    geom_errorbar(aes(ymin = pmax(0, lwr), ymax = upr), size = 1.2,
+                  width = 0) +
+    geom_bar(aes(y = count / k, fill = names(clr)[1]),
+             data = filter(pcrpos, age_group == a), stat = "identity",
+             alpha = 0.7) +
+    geom_bar(aes(y = n1 / k, fill = names(clr)[2]),
+             data = filter(vacc, age_group == a),
+             stat = "identity", alpha = 0.5) +
+    scale_fill_manual(values = clr) +
+    scale_y_continuous(labels = percent,
+                       sec.axis = sec_axis(trans =~ . * k)) +
+    facet_grid(rows = vars(age_group)) +
+    labs(x = "", y = "Prevalence", fill = "") +
+    theme(axis.title = element_blank(),
+          legend.text = element_text(size=rel(1.0))) +
+    guides(fill = guide_legend(override.aes = list(alpha = 0.5)))
+  if (a != age_grps[length(age_grps)]) {
+    fig <- fig +
+      theme(axis.text.x = element_blank(),
+            axis.ticks.x = element_blank())
+  }
+  return(fig)
+}) %>%
+  ggarrange(plotlist = ., ncol = 1, align = "v", legend = "bottom",
+            common.legend = TRUE) %>%
+  annotate_figure(
+    left = textGrob("Prevalence", rot = 90, vjust = 1, gp = gpar(cex = 1.3)),
+    right = textGrob("Number of cases", rot = 270, vjust = 1,
+                     gp = gpar(cex = 1.3))
+  )
+fig2
+jpeg("results/fig_evol_prev_test_vacc_DEV.jpg", height = 7200,
+     width = 3600, res = 256)
+print(fig2)
 dev.off()
 
 # Export data
