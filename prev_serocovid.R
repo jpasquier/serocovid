@@ -16,7 +16,8 @@ setwd("~/Projects/SerocoViD")
 uri   <- "https://redcap.unisante.ch/api/"
 
 # Tokens
-tokens <- c("corona_immunitas", "personal_data", "research_data")
+tokens <- c("corona_immunitas", "personal_data", "research_data",
+            "corona_immunitas_vague_6")
 tokens <- lapply(setNames(tokens, tokens), function(z) {
   z <- paste0("misc/redcap_", z, ".token")
   readChar(z, file.info(z)$size - 1)
@@ -195,10 +196,51 @@ dta4 <- dta4[!is.na(dta4$serol_igg), ]
 dta4 <- merge(dta4, strata_v4, by = "hid", all.x = TRUE)
 if (any(is.na(dta4$stratum))) stop("missing stratum")
 
+# --------------------------- Serology - Survey 6 --------------------------- #
+
+# Personal data - type of participant and strata
+vars <- c("uc_s_participant_hid", "uc_s_type_participant", "uc_s_strate_6")
+pdta6 <- unique(serocovid_data$personal_data[vars])
+if (any(duplicated(pdta6$uc_s_participant_hid))) {
+  stop("Duplicated hid")
+}
+vars <- c("hid", "spike_igg_qual", "nuc_igg_qual", "bl_vac_yn")
+dta6 <- serocovid_data$corona_immunitas_vague_6[vars]
+rm_hid <- c("6-841282", "6-76BKAW", "6-BHSMPF", paste0("test", 1:6))
+dta6 <- dta6[!(dta6$hid %in% rm_hid), ]
+dta6 <- merge(dta6, pdta6, by.x = "hid", by.y = "uc_s_participant_hid",
+              all.x = TRUE)
+if (any(is.na(dta6$uc_s_type_participant))) {
+  stop("missing type of participant")
+}
+if (any(is.na(dta6$uc_s_strate_6))) {
+  stop("missing strata")
+}
+rm(vars, pdta6)
+
+# Select observation of survey 4
+dta6 <- dta6[dta6$uc_s_type_participant %in% 15, ]
+
+# Compare spike_igg and nuc_igg
+with(dta6, table(spike_igg_qual, nuc_igg_qual, useNA = "ifany"))
+
+# Serology
+u1 <- "spike_igg_qual"
+u2 <- "nuc_igg_qual"
+dta6$serol_igg <- ifelse(dta6[[u1]] %in% 0:1, dta6[[u1]], ifelse(
+  dta6[[u1]] %in% 2 & dta6[[u2]] %in% 0:1, dta6[[u2]], NA))
+rm(u1, u2)
+
+# Rename stratum variable
+names(dta6)[names(dta6) == "uc_s_strate_6"] <- "stratum"
+
+# Select the observation for which serology is available
+dta6 <- dta6[!is.na(dta6$serol_igg), ]
+
 # ----------------------------- Population size ----------------------------- #
 
 # Population size - survey 1, 3 and 4
-pop <- readRDS("data/population_size_by_stratum.rds") 
+pop <- readRDS("data/population_size_by_stratum.rds")
 
 # ------------------------------- Estimation -------------------------------- #
 
@@ -258,19 +300,34 @@ Mean <- function(data = data, variable = "serol", stratum = "stratum",
 }
 
 # Estimation by survey
-long <- do.call(rbind, mclapply(1:4, function(j) {
+long <- do.call(rbind, mclapply(c(1:4, 6), function(j) {
   dta <- get(paste0("dta", j))
   if (j == 2) dta <- dta[dta$stratum != 3, ]
   dta$all <- factor("All")
-  dta$p15 <- factor(as.numeric(dta$stratum >= 4), 0:1, c("<=14", ">=15"))
-  stratum_levels <- c("6m-4", "5-9", "10-14", "15-19", "20-39", "40-64",
-                      "65-74", ">=75")
-  dta$stratum <- factor(dta$stratum, 1:8, stratum_levels)
-  pop$stratum <- factor(pop$stratum, 1:8, stratum_levels)
+  dta$p15 <- factor(as.numeric(dta$stratum >= (if (j <= 4) 4 else 1)),
+                    0:1, c("<=14", ">=15"))
+  if (j %in% c(1, 4)) {
+    stratum_levels <- 1:8
+    stratum_labels <- c("6m-4", "5-9", "10-14", "15-19", "20-39", "40-64",
+                        "65-74", ">=75")
+  } else if (j %in% 2:3) {
+    stratum_levels <- 4:8
+    stratum_labels <- c("15-19", "20-39", "40-64", "65-74", ">=75")
+  } else {
+    stratum_levels <- 1:4
+    stratum_labels <- c("15-29", "30-44", "45-64", ">=65")
+  }
+  dta$stratum <- factor(dta$stratum, stratum_levels, stratum_labels)
+  pop <- subset(pop, survey == c(1, 1, 3:4, NA, 6)[j])
+  pop$stratum <- factor(pop$stratum, stratum_levels, stratum_labels)
   domains <- c("all", "p15", "stratum")
   if (j >= 3) {
     names(dta)[grep("^bl_vac_yn", names(dta))] <- "vac"
-    dta$vac <- factor(dta$vac, 1:2, c("vac", "unvac"))
+    if (j == 6) {
+      dta$vac <- factor(dta$vac, 1:0, c("vac", "unvac"))
+    } else {
+      dta$vac <- factor(dta$vac, 1:2, c("vac", "unvac"))
+    }
     for (d in domains) {
       x <- paste0(d, "_vac")
       dta[[x]] <- interaction(dta[[d]], dta$vac)
@@ -282,7 +339,7 @@ long <- do.call(rbind, mclapply(1:4, function(j) {
     v <- c("serol_any", "serol_igg", "serol_iga")[k]
     w <- c("IgG or IgA", "IgG", "IgA")[k]
     p <- Mean(data = dta, variable = v, stratum = "stratum", domain = domains,
-              pop = subset(pop, survey == c(1, 1, 3:4)[j]))
+              pop = pop)
      cbind(antibody = w, visit = j, p)
   }))
 }))
@@ -290,8 +347,8 @@ names(long)[names(long) == "y"] <- "ppos"
 long$antibody <- factor(long$antibody, c("IgG or IgA", "IgG", "IgA"))
 long$v <- NULL
 if (TRUE) {
-  write_xlsx(long, "results/prev_serocovid_20220519.xlsx")
-  saveRDS(long, "results/prev_serocovid_20220519.rds", compress = "xz")
+  write_xlsx(long, "results/prev_serocovid_20220718.xlsx")
+  saveRDS(long, "results/prev_serocovid_20220718.rds", compress = "xz")
 }
 
 # Figure
@@ -336,4 +393,25 @@ if (FALSE) {
 
 #
 rm(serocovid_data)
-if (TRUE) save.image("results/prev_serocovid_20220519.rda", compress = "xz")
+if (TRUE) save.image("results/prev_serocovid_20220718.rda", compress = "xz")
+
+###############################################################################
+# library(survey)
+# wgt <- aggregate(hid ~ stratum, dta6, length)
+# names(wgt)[2] <- "n"
+# wgt <- merge(wgt, subset(pop, survey == 6), by = "stratum")
+# wgt$wgt <- wgt$N / wgt$n
+# tmp <- merge(dta6, wgt, by = "stratum")
+# d <- svydesign(
+#   id = ~hid,
+#   strata = ~stratum,
+#   weights = ~wgt,
+#   data = tmp,
+#   fpc = ~N
+# )
+# (prev <- svymean(~serol_igg, d))
+# confint(prev)
+# confint(prev, df = sum(wgt$n) - nrow(wgt)) # loi de Student au lieu de la loi
+#                                            # normale
+# (prev_by_stratum <- svyby(~serol_igg, ~stratum, d, svymean))
+# confint(prev_by_stratum)
