@@ -22,7 +22,12 @@ N_pop <- read_xlsx("data-misc/stat_vd/pop_2021_stat_vd.xlsx") %>%
          age_group = cut(Age, c(0, 4, 9, 14, 19, 39, 64, 74, Inf),
                          labels = age_grps, include.lowest = TRUE)) %>%
   group_by(age_group) %>%
-  summarise(N_pop = sum(Total))
+  summarise(N_pop = sum(Total)) %>%
+  bind_rows(data.frame(
+    age_group = c("all", ">=15"), 
+    N_pop = c(sum(.$N_pop), sum(.[.$age_group %in% age_grps[4:8], "N_pop"]))
+  )) %>%
+  mutate(age_group = factor(age_group, c("all", ">=15", age_grps)))
 
 # Positive tests
 # REMARQUE DE LA DGS : La définition de « semaine » est celle que nous
@@ -41,8 +46,20 @@ pcrpos <- local({
     age_group = factor(sub("\\s?ans", "", age_group), age_grps),
     date = ISOweek2date(paste0(year, "-W", sprintf("%02d", week), "-4"))
   ) %>%
+  bind_rows(
+    group_by(., year, week, date) %>%
+      summarise(count = sum(count), .groups = "drop") %>%
+      cbind(age_group = "all"),
+    filter(., age_group %in% age_grps[4:8]) %>%
+      group_by(year, week, date) %>%
+      summarise(count = sum(count), .groups = "drop") %>%
+      cbind(age_group = ">=15")
+  ) %>%
   left_join(N_pop, by = "age_group") %>%
-  mutate(incidence = count * 10^5 / N_pop)
+  mutate(
+    age_group = factor(age_group, c("all", ">=15", age_grps)),
+    incidence = count * 10^5 / N_pop
+  )
 
 # Median date of surveys
 visits <- read.table(header = TRUE, text = "
@@ -56,10 +73,17 @@ visits$date <- as.Date(visits$date)
 
 # Prevalence (proportion of positive people)
 prev <- readRDS("results/prev_serocovid_20220509.rds") %>%
-  filter(antibody == "IgG", domain == "stratum",
-         !(visit == 2 & value == "10-14")) %>%
+  filter(
+    antibody == "IgG",
+    domain == "stratum" | domain == "p15" & value == ">=15" |
+      visit %in% c(1, 4) & domain == "all",
+    !(visit == 2 & value == "10-14")
+  ) %>%
   rename(prev = ppos) %>%
-  mutate(age_group = factor(sub(">=75", "75+", value), age_grps)) %>%
+  mutate(
+    age_group = tolower(sub(">=75", "75+", value)), 
+    age_group = factor(age_group, c("all", ">=15", age_grps))
+  ) %>%
   left_join(visits, by = "visit")
 
 # Number of vaccinated people (source: VaCoViD)
@@ -82,10 +106,22 @@ vacc <- read_xlsx("data-misc/vacovid/Statistiques_premieres_doses.xlsx",
     date = ISOweek2date(paste0(annee_injection, "-W",
                                sprintf("%02d", semaine_injection), "-4"))
   ) %>%
-  rename(n1 = Count_all) %>%
+  rename(year = annee_injection, week = semaine_injection, n1 = Count_all) %>%
+  select(!Group_Age) %>%
+  bind_rows(
+    group_by(., year, week, date) %>%
+      summarise(n1 = sum(n1), .groups = "drop") %>%
+      cbind(age_group = "all"),
+    filter(., age_group %in% age_grps[4:8]) %>%
+      group_by(year, week, date) %>%
+      summarise(n1 = sum(n1), .groups = "drop") %>%
+      cbind(age_group = ">=15")
+  ) %>%
+  mutate(age_group = factor(age_group, c("all", ">=15", age_grps))) %>%
   arrange(age_group, date) %>%
   group_by(age_group) %>%
   mutate(N1 = cumsum(n1)) %>%
+  ungroup() %>%
   left_join(N_pop, by = "age_group") %>%
   mutate(P1 = N1 / N_pop)
 
@@ -157,10 +193,12 @@ fig2 <- lapply(age_grps, function(a) {
                      gp = gpar(cex = 1.3))
   )
 fig2
+if (FALSE) {
 jpeg("results/fig_evol_prev_test_vacc_DEV.jpg", height = 7200,
      width = 3600, res = 256)
 print(fig2)
 dev.off()
+}
 
 # Export data
 if (FALSE) {
