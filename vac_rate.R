@@ -23,7 +23,7 @@ tmp_file <- "/mnt/ramdisk/serocovid_data.rda"
 if (file.exists(tmp_file)) {
   load(tmp_file)
 } else {
-  serocovid_data <- mclapply(tokens, function(token) {
+  serocovid_data <- lapply(tokens, function(token) {
     read.csv(text = postForm(
       uri = uri,
       token = token,
