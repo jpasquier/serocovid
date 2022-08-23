@@ -225,11 +225,8 @@ dta6 <- dta6[dta6$uc_s_type_participant %in% 15, ]
 with(dta6, table(spike_igg_qual, nuc_igg_qual, useNA = "ifany"))
 
 # Serology
-u1 <- "spike_igg_qual"
-u2 <- "nuc_igg_qual"
-dta6$serol_igg <- ifelse(dta6[[u1]] %in% 0:1, dta6[[u1]], ifelse(
-  dta6[[u1]] %in% 2 & dta6[[u2]] %in% 0:1, dta6[[u2]], NA))
-rm(u1, u2)
+dta6$serol_igg <- as.numeric(dta6$spike_igg_qual == 1 | dta6$nuc_igg_qual == 1)
+dta6$serol_igg_nuc <- dta6$nuc_igg_qual %% 2
 
 # Rename stratum variable
 names(dta6)[names(dta6) == "uc_s_strate_6"] <- "stratum"
@@ -334,21 +331,22 @@ long <- do.call(rbind, mclapply(c(1:4, 6), function(j) {
       domains <- c(domains, x)
     }
   }
-  K <- if (j <= 3) 1:3 else 2
+  K <- if (j <= 3) 1:3 else if (j == 4) 2 else c(2, 4)
   do.call(rbind, lapply(K, function(k) {
-    v <- c("serol_any", "serol_igg", "serol_iga")[k]
-    w <- c("IgG or IgA", "IgG", "IgA")[k]
+    v <- c("serol_any", "serol_igg", "serol_iga", "serol_igg_nuc")[k]
+    w <- c("IgG or IgA", "IgG", "IgA", "IgG (NUC only)")[k]
     p <- Mean(data = dta, variable = v, stratum = "stratum", domain = domains,
               pop = pop)
      cbind(antibody = w, visit = j, p)
   }))
 }))
 names(long)[names(long) == "y"] <- "ppos"
-long$antibody <- factor(long$antibody, c("IgG or IgA", "IgG", "IgA"))
+long$antibody <- factor(long$antibody, c("IgG or IgA", "IgG", "IgA",
+                                         "IgG (NUC only)"))
 long$v <- NULL
 if (TRUE) {
-  write_xlsx(long, "results/prev_serocovid_20220718.xlsx")
-  saveRDS(long, "results/prev_serocovid_20220718.rds", compress = "xz")
+  write_xlsx(long, "results/prev_serocovid_20220823.xlsx")
+  saveRDS(long, "results/prev_serocovid_20220823.rds", compress = "xz")
 }
 
 # Figure
@@ -393,7 +391,7 @@ if (FALSE) {
 
 #
 rm(serocovid_data)
-if (TRUE) save.image("results/prev_serocovid_20220718.rda", compress = "xz")
+if (TRUE) save.image("results/prev_serocovid_20220823.rda", compress = "xz")
 
 ###############################################################################
 # library(survey)
