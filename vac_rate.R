@@ -49,8 +49,10 @@ age_grps <- data.frame(stratum = 1:8, age_group =
 age_grps_v6 <- data.frame(stratum_v6 = 1:4, age_group_v6 =
   c("15-29", "30-44", "45-64", ">=65"))
 dta <- bind_rows(
-  select(serocovid_data$corona_immunitas, hid, bl_vac_yn, bl_vac_yn_ph4),
-  select(serocovid_data$corona_immunitas_vague_6, hid, bl_vac_yn)
+  select(serocovid_data$corona_immunitas, hid, bl_vac_yn, bl_vac_yn_ph4,
+         uc_labo_coviggl_v2, uc_labo_qc_v4, uc_labo_coviggl_v4),
+  select(serocovid_data$corona_immunitas_vague_6, hid, bl_vac_yn,
+         spike_igg_qual, nuc_igg_qual)
 ) %>%
   left_join(
     serocovid_data$personal_data %>%
@@ -65,12 +67,27 @@ dta <- bind_rows(
     type == 15 & hid %in%
       c("6-841282", "6-76BKAW", "6-BHSMPF", paste0("test", 1:6))
   )) %>%
-  mutate(vac = case_when(
-    type == 13 ~ as.integer(2 - bl_vac_yn),
-    type == 14 ~ as.integer(2 - bl_vac_yn_ph4),
-    type == 15 ~ as.integer(bl_vac_yn),
-  )) %>%
-  filter(vac %in% 0:1) %>%
+  mutate(
+    vac = case_when(
+      type == 13 ~ as.integer(2 - bl_vac_yn),
+      type == 14 ~ as.integer(2 - bl_vac_yn_ph4),
+      type == 15 ~ as.integer(bl_vac_yn),
+    ),
+    serol_igg = case_when(
+      type == 13 ~ case_when(
+        grepl("(Négatif|Ind(e|é)terminé)", uc_labo_coviggl_v2) ~ 0,
+        grepl("Positif", uc_labo_coviggl_v2) ~ 1,
+        TRUE ~ NA_real_
+      ),
+      type == 14 ~ case_when(
+                     uc_labo_qc_v4 != "OK" ~ NA_real_,
+                     uc_labo_coviggl_v4 == "négatif" ~ 0,
+                     uc_labo_coviggl_v4 == "positif" ~ 1,
+                   ),
+      type == 15 ~ as.numeric(spike_igg_qual == 1 | nuc_igg_qual == 1)
+    )
+  ) %>%
+  filter(vac %in% 0:1, serol_igg %in% 0:1) %>%
   left_join(bind_rows(strata_v3, strata_v4), by = "hid") %>%
   left_join(age_grps, by = "stratum") %>%
   left_join(age_grps_v6, by = "stratum_v6") %>%
@@ -109,7 +126,15 @@ vac_rate_tbl <- do.call(rbind, lapply(c(3:4, 6), function(s) {
   r0 <- setNames(cbind(data.frame("all", r0[1]), confint(r0)), cn)
   r1 <- svyby(~vac, ~age_group, d, svymean)
   r1 <- setNames(cbind(r1[, 1:2], confint(r1)), cn)
-  r <- cbind(survey = s, bind_rows(r0, r1))
+  if (s == 4) {
+    r2 <- svyby(~vac, ~factor(I(stratum >= 4), c(FALSE, TRUE),
+                              c("<15", ">=15")),
+                d, svymean)
+    r2 <- setNames(cbind(r2[, 1:2], confint(r2)), cn)[2, ]
+  } else {
+    r2 <- NULL
+  }
+  r <- cbind(survey = s, bind_rows(r0, r2, r1))
   rownames(r) <- NULL
   return(r)
 })) %>%
