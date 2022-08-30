@@ -204,7 +204,8 @@ pdta6 <- unique(serocovid_data$personal_data[vars])
 if (any(duplicated(pdta6$uc_s_participant_hid))) {
   stop("Duplicated hid")
 }
-vars <- c("hid", "spike_igg_qual", "nuc_igg_qual", "bl_vac_yn")
+vars <- c("hid", "spike_igg_qual", "nuc_igg_qual", "neutralisation_omicron",
+          "bl_vac_yn")
 dta6 <- serocovid_data$corona_immunitas_vague_6[vars]
 rm_hid <- c("6-841282", "6-76BKAW", "6-BHSMPF", paste0("test", 1:6))
 dta6 <- dta6[!(dta6$hid %in% rm_hid), ]
@@ -223,10 +224,13 @@ dta6 <- dta6[dta6$uc_s_type_participant %in% 15, ]
 
 # Compare spike_igg and nuc_igg
 with(dta6, table(spike_igg_qual, nuc_igg_qual, useNA = "ifany"))
+with(dta6, table(dta6$spike_igg_qual == 1 | dta6$nuc_igg_qual == 1,
+                 neutralisation_omicron >= 50, useNA = "ifany"))
 
 # Serology
 dta6$serol_igg <- as.numeric(dta6$spike_igg_qual == 1 | dta6$nuc_igg_qual == 1)
 dta6$serol_igg_nuc <- dta6$nuc_igg_qual %% 2
+dta6$serol_omicron <- dta6$neutralisation_omicron >= 50
 
 # Rename stratum variable
 names(dta6)[names(dta6) == "uc_s_strate_6"] <- "stratum"
@@ -331,10 +335,11 @@ long <- do.call(rbind, mclapply(c(1:4, 6), function(j) {
       domains <- c(domains, x)
     }
   }
-  K <- if (j <= 3) 1:3 else if (j == 4) 2 else c(2, 4)
+  K <- if (j <= 3) 1:3 else if (j == 4) 2 else c(2, 4:5)
   do.call(rbind, lapply(K, function(k) {
-    v <- c("serol_any", "serol_igg", "serol_iga", "serol_igg_nuc")[k]
-    w <- c("IgG or IgA", "IgG", "IgA", "IgG (NUC only)")[k]
+    v <- c("serol_any", "serol_igg", "serol_iga", "serol_igg_nuc",
+           "serol_omicron")[k]
+    w <- c("IgG or IgA", "IgG", "IgA", "IgG (NUC only)", "IgG (Omicron)")[k]
     p <- Mean(data = dta, variable = v, stratum = "stratum", domain = domains,
               pop = pop)
      cbind(antibody = w, visit = j, p)
@@ -342,11 +347,11 @@ long <- do.call(rbind, mclapply(c(1:4, 6), function(j) {
 }))
 names(long)[names(long) == "y"] <- "ppos"
 long$antibody <- factor(long$antibody, c("IgG or IgA", "IgG", "IgA",
-                                         "IgG (NUC only)"))
+                                         "IgG (NUC only)", "IgG (Omicron)"))
 long$v <- NULL
 if (TRUE) {
-  write_xlsx(long, "results/prev_serocovid_20220823.xlsx")
-  saveRDS(long, "results/prev_serocovid_20220823.rds", compress = "xz")
+  write_xlsx(long, "results/prev_serocovid_20220830.xlsx")
+  saveRDS(long, "results/prev_serocovid_20220830.rds", compress = "xz")
 }
 
 # Figure
@@ -391,7 +396,7 @@ if (FALSE) {
 
 #
 rm(serocovid_data)
-if (TRUE) save.image("results/prev_serocovid_20220823.rda", compress = "xz")
+if (TRUE) save.image("results/prev_serocovid_20220830.rda", compress = "xz")
 
 ###############################################################################
 # library(survey)
