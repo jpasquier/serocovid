@@ -339,12 +339,12 @@ long <- do.call(rbind, mclapply(c(1:4, 6), function(j) {
     } else {
       dta$vac <- factor(dta$vac, 1:2, c("vac", "unvac"))
     }
+    if (j == 6) domains <- c(domains, "age_group")
     for (d in domains) {
       x <- paste0(d, "_vac")
       dta[[x]] <- interaction(dta[[d]], dta$vac)
       domains <- c(domains, x)
     }
-    if (j == 6) domains <- c(domains, "age_group")
   }
   K <- if (j <= 3) 1:3 else if (j == 4) 2 else c(2, 4:5)
   do.call(rbind, lapply(K, function(k) {
