@@ -10,6 +10,9 @@ library(writexl)
 # Working directory
 setwd("~/Projects/SerocoViD")
 
+# Today's date
+today <- format(Sys.Date(), '%Y%m%d')
+
 # ------------------------- REDCap data and strata -------------------------- #
 
 # API
@@ -199,7 +202,8 @@ if (any(is.na(dta4$stratum))) stop("missing stratum")
 # --------------------------- Serology - Survey 6 --------------------------- #
 
 # Personal data - type of participant and strata
-vars <- c("uc_s_participant_hid", "uc_s_type_participant", "uc_s_strate_6")
+vars <- c("uc_s_participant_hid", "uc_s_type_participant", "uc_s_strate_6",
+          "uc_s_age")
 pdta6 <- unique(serocovid_data$personal_data[vars])
 if (any(duplicated(pdta6$uc_s_participant_hid))) {
   stop("Duplicated hid")
@@ -234,6 +238,12 @@ dta6$serol_omicron <- dta6$neutralisation_omicron >= 50
 
 # Rename stratum variable
 names(dta6)[names(dta6) == "uc_s_strate_6"] <- "stratum"
+
+# Age groups corresponding to the preceding serocovid strata
+dta6$age_group <- cut(dta6$uc_s_age, c(0, 4, 9, 14, 19, 39, 64, 74, Inf),
+                      c("6m-4", "5-9", "10-14", "15-19", "20-39", "40-64",
+                        "65-74", ">=75"))
+dta6$age_group <- droplevels(dta6$age_group)
 
 # Select the observation for which serology is available
 dta6 <- dta6[!is.na(dta6$serol_igg), ]
@@ -334,6 +344,7 @@ long <- do.call(rbind, mclapply(c(1:4, 6), function(j) {
       dta[[x]] <- interaction(dta[[d]], dta$vac)
       domains <- c(domains, x)
     }
+    if (j == 6) domains <- c(domains, "age_group")
   }
   K <- if (j <= 3) 1:3 else if (j == 4) 2 else c(2, 4:5)
   do.call(rbind, lapply(K, function(k) {
@@ -350,8 +361,9 @@ long$antibody <- factor(long$antibody, c("IgG or IgA", "IgG", "IgA",
                                          "IgG (NUC only)", "IgG (Omicron)"))
 long$v <- NULL
 if (TRUE) {
-  write_xlsx(long, "results/prev_serocovid_20220830.xlsx")
-  saveRDS(long, "results/prev_serocovid_20220830.rds", compress = "xz")
+  write_xlsx(long, paste0("results/prev_serocovid_", today, ".xlsx"))
+  saveRDS(long, paste0("results/prev_serocovid_", today, ".rds"),
+          compress = "xz")
 }
 
 # Figure
@@ -396,7 +408,9 @@ if (FALSE) {
 
 #
 rm(serocovid_data)
-if (TRUE) save.image("results/prev_serocovid_20220830.rda", compress = "xz")
+if (TRUE) {
+  save.image(paste0("results/prev_serocovid_", today, ".rda"), compress = "xz")
+}
 
 ###############################################################################
 # library(survey)
