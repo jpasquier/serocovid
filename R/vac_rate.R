@@ -40,14 +40,13 @@ strata_v3 <- readRDS("data/strata_v3.rds")
 strata_v4 <- readRDS("data/strata_v4.rds")
 
 # Population size
-pop <- readRDS("data/population_size_by_stratum.rds")
+pop <- readRDS("data/population_size_by_stratum.rds") %>%
+  mutate(survey = if_else(survey == 6L, 5L, survey))
 
 # --------------------------- Vaccination status ---------------------------- #
 
-age_grps <- data.frame(stratum = 1:8, age_group =
-  c("6m-4", "5-9", "10-14", "15-19", "20-39", "40-64", "65-74", ">=75"))
-age_grps_v6 <- data.frame(stratum_v6 = 1:4, age_group_v6 =
-  c("15-29", "30-44", "45-64", ">=65"))
+age_grps <- 
+  c("6m-4", "5-9", "10-14", "15-19", "20-39", "40-64", "65-74", ">=75")
 dta <- bind_rows(
   select(serocovid_data$corona_immunitas, hid, bl_vac_yn, bl_vac_yn_ph4,
          uc_labo_coviggl_v2, uc_labo_qc_v4, uc_labo_coviggl_v4),
@@ -58,9 +57,10 @@ dta <- bind_rows(
     serocovid_data$personal_data %>%
       unique() %>%
       select(hid = uc_s_participant_hid, type = uc_s_type_participant,
-             stratum_v6 = uc_s_strate_6),
+             stratum_v6 = uc_s_strate_6, age = uc_s_age),
     by = "hid"
   ) %>%
+  left_join(bind_rows(strata_v3, strata_v4), by = "hid") %>%
   filter(type %in% 13:15 & !(
     type == 13 & grepl("^123123", hid) |
     type == 14 & hid %in% c("13131313", "987654321") |
@@ -85,18 +85,18 @@ dta <- bind_rows(
                      uc_labo_coviggl_v4 == "positif" ~ 1,
                    ),
       type == 15 ~ as.numeric(spike_igg_qual == 1 | nuc_igg_qual == 1)
+    ),
+    age_group = case_when(
+      type == 15 ~ cut(age, c(0, 4, 9, 14, 19, 39, 64, 74, Inf),
+                    c("6m-4", "5-9", "10-14", "15-19", "20-39", "40-64",
+                      "65-74", ">=75")),
+      TRUE ~ factor(stratum, 1:8, age_grps)
     )
   ) %>%
   filter(vac %in% 0:1, serol_igg %in% 0:1) %>%
-  left_join(bind_rows(strata_v3, strata_v4), by = "hid") %>%
-  left_join(age_grps, by = "stratum") %>%
-  left_join(age_grps_v6, by = "stratum_v6") %>%
   mutate(
     stratum = ifelse(type == 15, stratum_v6, stratum),
-    age_group = ifelse(type == 15, age_group_v6, age_group),
-    age_group =
-      factor(age_group, c(age_grps$age_group, age_grps_v6$age_group_v6)),
-    survey = ifelse(type == 15, 6, type - 10)
+    survey = type - 10
   ) %>%
   left_join(select(pop, -age), by = c("survey", "stratum")) %>%
   select(hid, survey, stratum, age_group, vac, N) %>%
@@ -106,14 +106,21 @@ dta <- bind_rows(
 
 # ------------------- Estimation with the survey package -------------------- #
 
-N <- dta %>%
-  select(survey, age_group, N, n) %>%
-  unique()
-N <- N %>%
-  group_by(survey) %>%
-  summarise(age_group = "all", N = sum(N), n = sum(n)) %>%
-  bind_rows(N)
-vac_rate_tbl <- do.call(rbind, lapply(c(3:4, 6), function(s) {
+N <- bind_rows(
+  dta %>%
+    group_by(survey, age_group) %>%
+    summarise(n = n(), .groups = 'drop'),
+  dta %>%
+    group_by(survey) %>%
+    summarise(n = n(), .groups = 'drop') %>%
+    mutate(age_group = 'all'),
+  dta %>%
+    filter(survey == 4, stratum >= 4) %>%
+    group_by(survey) %>%
+    summarise(n = n(), .groups = 'drop') %>%
+    mutate(age_group = '>=15')
+)
+vac_rate_tbl <- do.call(rbind, lapply(3:5, function(s) {
   d <- svydesign(
     id = ~hid,
     strata = ~stratum,
@@ -138,7 +145,7 @@ vac_rate_tbl <- do.call(rbind, lapply(c(3:4, 6), function(s) {
   rownames(r) <- NULL
   return(r)
 })) %>%
-  left_join(N, by = c("survey", "age_group") ) 
+  left_join(N, by = c("survey", "age_group"))
 write_xlsx(vac_rate_tbl, paste0("results/vac_rate_tbl_",
                                 format(Sys.time(), "%Y%m%d"), ".xlsx"))
 
