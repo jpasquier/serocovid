@@ -1,3 +1,4 @@
-*.html
-*.token
-old/
+/*
+/*/
+!/R/
+!.gitignore

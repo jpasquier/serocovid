@@ -68,11 +68,12 @@ visits <- read.table(header = TRUE, text = "
       2   2020-11-15
       3   2021-02-03
       4   2021-10-01
+      5   2022-XX-XX
 ")
 visits$date <- as.Date(visits$date)
 
 # Prevalence (proportion of positive people)
-prev <- readRDS("results/prev_serocovid_20220509.rds") %>%
+prev <- readRDS("results/prev_serocovid_20220830.rds") %>%
   filter(
     antibody == "IgG",
     domain == "stratum" | domain == "p15" & value == ">=15" |
@@ -124,6 +125,37 @@ vacc <- read_xlsx("data-misc/vacovid/Statistiques_premieres_doses.xlsx",
   ungroup() %>%
   left_join(N_pop, by = "age_group") %>%
   mutate(P1 = N1 / N_pop)
+
+#######################3
+# NEW DATA
+'2022-09-13_vacovid_firstdose_weekly_agegr_serocovid.xlsx'
+new_vacc <- read_xlsx(file.path(
+  'data-misc/vacovid',
+  '2022-09-13_vacovid_firstdose_weekly_agegr_serocovid.xlsx'
+)) %>%
+  mutate(
+    agegr_serocovid = sub(" ans", "", agegr_serocovid),
+    agegr_serocovid = factor(gsub("0-4", "6m-4", agegr_serocovid), age_grps),
+    date = ISOweek2date(paste0(year, "-W", sprintf("%02d", week), "-4"))
+  ) %>%
+  rename(age_group = agegr_serocovid, n1 = N) %>%
+  bind_rows(
+    group_by(., year, week, date) %>%
+      summarise(n1 = sum(n1), .groups = "drop") %>%
+      cbind(age_group = "all"),
+    filter(., age_group %in% age_grps[4:8]) %>%
+      group_by(year, week, date) %>%
+      summarise(n1 = sum(n1), .groups = "drop") %>%
+      cbind(age_group = ">=15")
+  ) %>%
+  mutate(age_group = factor(age_group, c("all", ">=15", age_grps))) %>%
+  arrange(age_group, date) %>%
+  group_by(age_group) %>%
+  mutate(N1 = cumsum(n1)) %>%
+  ungroup() %>%
+  left_join(N_pop, by = "age_group") %>%
+  mutate(P1 = N1 / N_pop)
+
 
 # Maximum number of cases per age class
 max_cases <- full_join(pcrpos, vacc, by = c("age_group", "date")) %>%
