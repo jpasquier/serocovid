@@ -23,7 +23,7 @@ prev <- lapply(1:2, function(k) {
   smpl$grp2 <- c("6m-4", rep(">=5", 7))[smpl$strate]
   smpl$grp3 <- c(rep("1: 6m-9", 2), rep("2: >=10", 6))[smpl$strate]
   smpl$grp4 <- c(rep("1: 6m-14", 3), rep("2: >=15", 5))[smpl$strate]
-  smpl$grp5 <- c(rep("1: 6m-19", 3), rep("2: >=20", 5))[smpl$strate]
+  smpl$grp5 <- c(rep("1: 6m-19", 4), rep("2: >=20", 4))[smpl$strate]
   smpl$vac2 <- with(smpl, ifelse(is.na(vac), "3: missing",
                                 ifelse(vac == "y", "2: yes", "1: no")))
   smpl$vac2 <- paste("vac:", smpl$vac2)
