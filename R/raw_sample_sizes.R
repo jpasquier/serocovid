@@ -4,7 +4,7 @@ library(writexl)
 setwd("~/Projects/SerocoViD")
 
 # Raw samples
-smpl <- c(smpl1 = 1, smpl3 = 2, smpl4 = 4)
+smpl <- c(smpl1 = 1, smpl3 = 2, smpl4 = 4, smpl6 = 5)
 smpl <- lapply(smpl, function(s) {
   filename <- paste0("data-fso/COVID19_VD_V", s, "_Total.csv")
   subset(read.csv(filename, sep = ";"), !is.na(strate))
